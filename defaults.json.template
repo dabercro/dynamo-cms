@@ -1,0 +1,76 @@
+{
+  "history.history:TransactionHistoryInterface": {
+    "fullauth": {
+      "module": "MySQLHistory",
+      "config": {
+        "db_params": {
+          "user": "",
+          "passwd": "",
+          "host": "localhost",
+          "db": "dynamohistory"
+        }
+      }
+    },
+    "readonly": {
+      "module": "MySQLHistory",
+      "config": {
+        "db_params": {
+          "user": "",
+          "passwd": "",
+          "host": "localhost",
+          "db": "dynamohistory"
+        }
+      }
+    }
+  },
+  "utils.interface.mysql:MySQL": {
+    "fullauth": {
+      "user": "",
+      "passwd": "",
+      "host": "localhost"
+    },
+    "readonly": {
+      "user": "",
+      "passwd": "",
+      "host": "localhost"
+    }
+  },
+  "utils.interface.webservice:HTTPSCertKeyHandler": {
+    "fullauth": {
+      "certfile": ""
+    },
+    "readonly": {
+      "certfile": ""
+    }
+  },
+  "utils.interface.phedex:PhEDEx": {
+    "all": {
+      "url_base": "https://cmsweb.cern.ch/phedex/datasvc/json/prod",
+      "num_attempts": 5
+    }
+  },
+  "utils.interface.phedex:DBS": {
+    "all": {
+      "url_base": "https://cmsweb.cern.ch/dbs/prod/global/DBSReader",
+      "num_attempts": 5
+    }
+  },
+  "utils.interface.popdb:PopDB": {
+    "all": {
+      "url_base": "https://cmsweb.cern.ch/popdb",
+      "num_attempts": 5
+    }
+  },
+  "utils.interface.sitedb:SiteDB": {
+    "all": {
+      "url_base": "https://cmsweb.cern.ch/sitedb/data/prod",
+      "num_attempts": 5
+    }
+  },
+  "utils.interface.ssb:SiteStatusBoard": {
+    "all": {
+      "url_base": "http://dashb-ssb.cern.ch/dashboard/request.py",
+      "num_attempts": 5
+    }
+  }
+}
