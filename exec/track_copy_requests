@@ -106,7 +106,7 @@ for request_id, item_name, site_name, group_name in registry.query(sql):
             LOG.error('%s is not owned by %s.', replica, group)
             continue
 
-        if replica.is_complete:
+        if replica.is_complete():
             LOG.debug('%s complete', replica)
             update(request_id, item_name, site_name)
         else:

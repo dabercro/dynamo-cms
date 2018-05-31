@@ -144,7 +144,12 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                                         replica.site.name == site_name:
 
                                     replica.group = Group(sub_entry['group'])
-                                    replica.is_complete = (sub_entry['node_bytes'] == block_entry['bytes'])
+                                    if sub_entry['node_bytes'] == block_entry['bytes']:
+                                        # complete
+                                        replica.files = None
+                                    else:
+                                        # should in principle set to the list of file ids, but CMS instance does not use file-level information at the moment
+                                        replica.files = (,)
                                     replica.is_custodial = (sub_entry['custodial'] == 'y')
                                     replica.size = sub_entry['node_bytes']
                                     if sub_entry['time_update'] is not None:
@@ -229,11 +234,14 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                 block,
                 Site(replica_entry['node']),
                 Group(replica_entry['group']),
-                is_complete = (replica_entry['bytes'] == block.size),
                 is_custodial = (replica_entry['custodial'] == 'y'),
                 size = replica_entry['bytes'],
                 last_update = int(time_update)
             )
+
+            if replica_entry['bytes'] != block.size:
+                # see note above on block_replica.files
+                block_replica.files = (,)
 
             replicas.append(block_replica)
 

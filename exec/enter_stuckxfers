@@ -252,7 +252,7 @@ for reqid in sorted(set2):
         
             sources = []
             for blockRepObj in block_replicas:
-                if not blockRepObj.is_complete:      continue
+                if not blockRepObj.is_complete():      continue
                 if blockRepObj.site.name == target:  continue
                 if blockRepObj.site.status != Site.STAT_READY: continue
                 sources.append(blockRepObj.site.name)
