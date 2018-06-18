@@ -1,9 +1,11 @@
+import time
 import logging
 import collections
 
 from dynamo.operation.copy import CopyInterface
 from dynamo.utils.interface.webservice import POST
 from dynamo.utils.interface.phedex import PhEDEx
+from dynamo.utils.interface.mysql import MySQL
 from dynamo.dataformat import DatasetReplica, Configuration
 
 LOG = logging.getLogger(__name__)
@@ -18,75 +20,56 @@ class PhEDExCopyInterface(CopyInterface):
 
         self._phedex = PhEDEx(config.get('phedex', None))
 
+        self._history = MySQL(config.history)
+
         self.subscription_chunk_size = config.get('chunk_size', 50.) * 1.e+12
 
-    def schedule_copy(self, replica,  comments = ''): #override
-        request_mapping = {}
+    def schedule_copies(self, replica_list, operation_id, comments = ''): #override
+        sites = set(r.site for r in replica_list)
+        if len(sites) != 1:
+            raise OperationalError('schedule_copies should be called with a list of replicas at a single site.')
 
-        subscription_list = []
+        site = list(sites)[0]
 
-        if type(replica) is DatasetReplica:
-            blocks_by_group = collections.defaultdict(set)
-            for block_replica in replica.block_replicas:
-                blocks_by_group[block_replica.group].add(block_replica.block)
+        LOG.info('Scheduling copy of %d replicas to %s using PhEDEx (operation %d)', len(replica_list), site, operation_id)
 
-            if len(blocks_by_group) > 1:
-                # this was called as a dataset-level copy, but in fact we have multiple
-                # sets of blocks with different groups -> recall block-level schedule_copies
-                return self.schedule_copies(replica.block_replicas, comments)
+        # sort the subscriptions into dataset level / block level and by groups
+        subscription_lists = {}
+        subscription_lists['dataset'] = collections.defaultdict(list) # {(level, group_name): [replicas]}
+        subscription_lists['block'] = collections.defaultdict(list) # {(level, group_name): [replicas]}
 
-            group, block_replicas = blocks_by_group.items()[0]
-
-            if block_replicas == replica.dataset.blocks:
-                subscription_list.append(replica.dataset)
-                level = 'dataset'
+        for replica in replica_list:
+            if replica.growing:
+                subscription_lists['dataset'][replica.group].append(replica.dataset)
             else:
-                subscription_list.extend(block_replicas)
-                level = 'block'
+                blocks_by_group = collections.defaultdict(set)
+                for block_replica in replica.block_replicas:
+                    blocks_by_group[block_replica.group].add(block_replica.block)
 
-        else: #BlockReplica
-            group = replica.group
-            subscription_list.append(replica.block)
-            level = 'block'
+                for group, blocks in blocks_by_group.iteritems():
+                    subscription_lists['block'][group].extend(blocks)
 
-        self._run_subscription_request(request_mapping, replica.site, group, level, subscription_list, comments)
+        # for convenience, mapping dataset -> replica
+        result = {}
 
-        return request_mapping
+        for level in ['dataset', 'block']:
+            for group, items in subscription_lists[level].iteritems():
+                success = self._run_subscription_request(operation_id, site, group, level, items, comments)
 
-    def schedule_copies(self, replicas, comments = ''): #override
-        request_mapping = {}
+                for replica in success:
+                    if replica.dataset in result:
+                        booked = result[replica.dataset]
+                        # need to merge
+                        for block_replica in replica.block_replicas:
+                            # there shouldn't be any block replica overlap but we will be careful
+                            if booked.find_block_replica(block_replica.block) is None:
+                                booked.block_replicas.add(block_replica)
+                    else:
+                        result[replica.dataset] = replica
 
-        replicas_by_site = collections.defaultdict(list)
-        for replica in replicas:
-            replicas_by_site[replica.site].append(replica)
+        return result.values()
 
-        for site, replica_list in replicas_by_site.iteritems():
-            # sort the subscriptions into dataset level / block level and by groups
-            subscription_lists = {}
-            subscription_lists['dataset'] = collections.defaultdict(list) # {(level, group_name): [replicas]}
-            subscription_lists['block'] = collections.defaultdict(list) # {(level, group_name): [replicas]}
-
-            for replica in replica_list:
-                if type(replica) is DatasetReplica:
-                    blocks_by_group = collections.defaultdict(set)
-                    for block_replica in replica.block_replicas:
-                        blocks_by_group[block_replica.group].add(block_replica.block)
-
-                    for group, blocks in blocks_by_group.iteritems():
-                        if blocks == replica.dataset.blocks:
-                            subscription_lists['dataset'][group].append(replica.dataset)
-                        else:
-                            subscription_lists['block'][group].extend(blocks)
-                else:
-                    subscription_lists['block'][replica.group].append(replica.block)
-
-            for level in ['dataset', 'block']:
-                for group, items in subscription_lists[level].iteritems():
-                    self._run_subscription_request(request_mapping, site, group, level, items, comments)
-
-        return request_mapping
-
-    def _run_subscription_request(self, request_mapping, site, group, level, subscription_list, comments):
+    def _run_subscription_request(self, operation_id, site, group, level, subscription_list, comments):
         # Make a subscription request for potentitally multiple datasets or blocks but to one site and one group
         full_catalog = collections.defaultdict(list)
 
@@ -97,7 +80,9 @@ class PhEDExCopyInterface(CopyInterface):
             for block in subscription_list:
                 full_catalog[block.dataset].append(block)
 
-        LOG.info('Subscribing %d datasets for %s at %s', len(full_catalog), group.name, site.name)
+        history_sql = 'INSERT INTO `phedex_requests` (`id`, `operation_type`, `operation_id`, `approved`) VALUES (%s, \'copy\', %s, %s)'
+
+        success = []
 
         # make requests in chunks
         request_catalog = {}
@@ -130,28 +115,39 @@ class PhEDExCopyInterface(CopyInterface):
                 'no_mail': 'n',
                 'comments': comments
             }
-    
-            # result = [{'id': <id>}] (item 'request_created' of PhEDEx response)
-            if self.dry_run:
-                result = [{'id': '%d' % self._next_operation_id}]
-                self._next_operation_id += 1
-            else:
-                try:
-                    result = self._phedex.make_request('subscribe', options, method = POST)
-                except:
-                    result = []
 
-            if len(result) != 0:
-                request_id = int(result[0]['id']) # return value is a string
-                LOG.warning('PhEDEx subscription request id: %d', request_id)
-                request_mapping[request_id] = (True, site, items)
-            else:
+            try:
+                if self.dry_run:
+                    result = [{'id': 0}]
+                else:
+                    result = self._phedex.make_request('subscribe', options, method = POST)
+            except:
                 LOG.error('Copy %s failed.', str(options))
                 # we should probably do something here
+            else:
+                request_id = int(result[0]['id']) # return value is a string
+                LOG.warning('PhEDEx subscription request id: %d', request_id)
+                if not self.dry_run:
+                    self._history.query(history_sql, request_id, operation_id, True)
+
+                for dataset, blocks in request_catalog.iteritems():
+                    if level == 'dataset':
+                        replica = DatasetReplica(dataset, site, growing = True, group = group)
+                        for block in dataset.blocks:
+                            replica.block_replicas.add(BlockReplica(block, site, group, size = 0, last_update = int(time.time())))
+
+                    else:
+                        replica = DatasetReplica(dataset, site, growing = False)
+                        for block in blocks:
+                            replica.block_replicas.add(BlockReplica(block, site, group, size = 0, last_update = int(time.time())))
+
+                    success.append(replica)
 
             request_catalog = {}
             chunk_size = 0
             items = []
+
+        return success
 
     def copy_status(self, request_id): #override
         status = {}

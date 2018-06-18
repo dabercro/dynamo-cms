@@ -1,5 +1,7 @@
 # Namespace-specific rules for e.g. object name conversions
 
+import re
+
 from exceptions import ObjectError
 
 def Dataset_format_software_version(value):
@@ -55,13 +57,16 @@ def customize_dataset(Dataset):
 
     Dataset.SoftwareVersion.field_names = ('cycle', 'major', 'minor', 'suffix')
 
-    Dataset._name_pattern = '/[^/]+/[^/]+/[^/]+'
+    Dataset.name_pattern = re.compile('/[^/]+/[^/]+/[^/]+')
 
 def customize_block(Block):
     Block.to_internal_name = Block_to_internal_name
     Block.to_real_name = Block_to_real_name
     Block.to_full_name = Block_to_full_name
     Block.from_full_name = Block_from_full_name
+
+    hex_chars = '[0-9a-fA-F]'
+    Block.name_pattern = re.compile('{h}{{8}}-{h}{{4}}-{h}{{4}}-{h}{{4}}-{h}{{12}}'.format(h = hex_chars))
 
 def customize_blockreplica(BlockReplica):
     BlockReplica._use_file_ids = False

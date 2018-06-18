@@ -98,7 +98,7 @@ for partition in config.partitions:
         if site.endswith('_MSS'):
             continue
 
-        status, quota = sites_info[site]
+        sid, status, quota = sites_info[site]
         try:
             protect, delete, keep = sites_usage[site]
         except KeyError:
@@ -164,7 +164,7 @@ for partition in config.partitions:
     results = detoxhistory.get_deletion_decisions(cycle, size_only = False)
     for site, datasets in results.items():
         dataset_lists[site][partition] = []
-        for (dataset, size, decision, reason) in datasets:
+        for dataset, size, _, _, _ in datasets:
             dscount_now[dataset] += 1
             dataset_lists[site][partition].append((dataset, size))
 
@@ -173,7 +173,7 @@ for partition in config.partitions:
         prev_cycle = cycles[0]
         results = detoxhistory.get_deletion_decisions(prev_cycle, size_only = False)
         for site, datasets in results.items():
-            for (dataset, size, decision, reason) in datasets:
+            for dataset, size, _, _, _ in datasets:
                 dscount_prev[dataset] += 1
 
 if sitesinfo is not sys.stdout:
