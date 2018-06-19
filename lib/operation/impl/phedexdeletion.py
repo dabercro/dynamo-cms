@@ -1,10 +1,12 @@
+import time
 import logging
 import collections
 
 from dynamo.operation.deletion import DeletionInterface
 from dynamo.utils.interface.webservice import POST
 from dynamo.utils.interface.phedex import PhEDEx
-from dynamo.dataformat import DatasetReplica, BlockReplica, Site, Configuration
+from dynamo.utils.interface.mysql import MySQL
+from dynamo.dataformat import DatasetReplica, BlockReplica, Site, Group, Configuration
 
 LOG = logging.getLogger(__name__)
 
@@ -18,65 +20,72 @@ class PhEDExDeletionInterface(DeletionInterface):
 
         self._phedex = PhEDEx(config.get('phedex', None))
 
+        self._history = MySQL(config.history)
+
         self.auto_approval = config.get('auto_approval', True)
         self.allow_tape_deletion = config.get('allow_tape_deletion', False)
         self.tape_auto_approval = config.get('tape_auto_approval', False)
 
         self.deletion_chunk_size = config.get('chunk_size', 50.) * 1.e+12
 
-    def schedule_deletion(self, replica, comments = ''): #override
-        request_mapping = {}
+    def schedule_deletions(self, replica_list, operation_id, comments = ''): #override
+        sites = set(r.site for r, b in replica_list)
+        if len(sites) != 1:
+            raise OperationalError('schedule_copies should be called with a list of replicas at a single site.')
 
-        if replica.site.storage_type == Site.TYPE_MSS and self.allow_tape_deletion:
-            LOG.warning('Deletion from MSS is not allowed by configuration.')
-            return request_mapping
+        site = list(sites)[0]
 
-        deletion_list = []
-        if type(replica) is DatasetReplica:
-            replica_blocks = set(r.block for r in replica.block_replicas)
+        if site.storage_type == Site.TYPE_MSS and not self.allow_tape_deletion:
+            LOG.warning('Deletion from MSS not allowed by configuration.')
+            return []
 
-            if replica_blocks == replica.dataset.blocks:
-                deletion_list.append(replica.dataset)
-                level = 'dataset'
+        # execute the deletions in two steps: one for dataset-level and one for block-level
+        datasets = []
+        blocks = []
+
+        # maps used later for cloning
+        # getting ugly here.. should come up with a better way of making clones
+        replica_map = {}
+        block_replica_map = {}
+
+        for dataset_replica, block_replicas in replica_list:
+            if block_replicas is None:
+                datasets.append(dataset_replica.dataset)
             else:
-                deletion_list.extend(replica_blocks)
-                level = 'block'
+                blocks.extend(br.block for br in block_replicas)
 
-        else: #BlockReplica
-            deletion_list.append(replica.block)
-            level = 'block'
+                replica_map[dataset_replica.dataset] = dataset_replica
+                block_replica_map.update((br.block, br) for br in block_replicas)
 
-        self._run_deletion_request(request_mapping, replica.site, level, deletion_list, comments)
+        success = []
 
-        return request_mapping
+        deleted_datasets = self._run_deletion_request(operation_id, site, 'dataset', datasets, comments)
 
-    def schedule_deletions(self, replica_list, comments = ''): #override
-        request_mapping = {}
+        for dataset in deleted_datasets:
+            replica = DatasetReplica(dataset, site, growing = False, group = Group.null_group)
+            success.append((replica, None))
 
-        replicas_by_site = collections.defaultdict(list)
-        for replica in replica_list:
-            replicas_by_site[replica.site].append(replica)
+        tmp_map = dict((dataset, []) for dataset in replica_map.iterkeys())
 
-            if replica.site.storage_type == Site.TYPE_MSS and not self.allow_tape_deletion:
-                LOG.warning('Deletion from MSS not allowed by configuration.')
-                return {}
+        deleted_blocks = self._run_deletion_request(operation_id, site, 'block', blocks, comments)
 
-        for site, replica_list in replicas_by_site.iteritems():
-            # execute the deletions in two steps: one for dataset-level and one for block-level
-            deletion_lists = {'dataset': [], 'block': []}
+        for block in deleted_blocks:
+            tmp_map[block.dataset].append(block)
 
-            for replica in replica_list:
-                if type(replica) is DatasetReplica:
-                    deletion_lists['dataset'].append(replica.dataset)
-                else:
-                    deletion_lists['block'].append(replica.block)
+        for dataset, blocks in tmp_map.iteritems():
+            replica = DatasetReplica(dataset, site)
+            replica.copy(replica_map[dataset])
+            
+            success.append((replica, []))
+            for block in blocks:
+                block_replica = BlockReplica(block, site, Group.null_group)
+                block_replica.copy(block_replica_map[block])
+                block_replica.last_update = int(time.time())
+                success[-1][1].append(block_replica)
 
-            self._run_deletion_request(request_mapping, site, 'dataset', deletion_lists['dataset'], comments)
-            self._run_deletion_request(request_mapping, site, 'block', deletion_lists['block'], comments)
+        return success
 
-        return request_mapping
-
-    def _run_deletion_request(self, request_mapping, site, level, deletion_list, comments):
+    def _run_deletion_request(self, operation_id, site, level, deletion_list, comments):
         full_catalog = collections.defaultdict(list)
 
         if level == 'dataset':
@@ -85,6 +94,10 @@ class PhEDExDeletionInterface(DeletionInterface):
         elif level == 'block':
             for block in deletion_list:
                 full_catalog[block.dataset].append(block)
+
+        history_sql = 'INSERT INTO `phedex_requests` (`id`, `operation_type`, `operation_id`, `approved`) VALUES (%s, \'deletion\', %s, %s)'
+
+        deleted_items = []
 
         request_catalog = {}
         chunk_size = 0
@@ -112,25 +125,27 @@ class PhEDExDeletionInterface(DeletionInterface):
             }
     
             # result = [{'id': <id>}] (item 'request_created' of PhEDEx response) if successful
-            if self.dry_run:
-                result = [{'id': '%d' % self._next_operation_id}]
-                self._next_operation_id += 1
-            else:
-                result = []
-                try:
+            try:
+                if self.dry_run:
+                    result = [{'id': 0}]
+                else:
                     result = self._phedex.make_request('delete', options, method = POST)
-                except:
-                    if self._phedex.last_errorcode == 400:
-                        # Sometimes we have invalid data in the list of objects to delete.
-                        # PhEDEx throws a 400 error in such a case. We have to then try to identify the
-                        # problematic item through trial and error.
-                        if len(items) == 1:
-                            LOG.error('Could not delete %s from %s', str(items[0]), site.name)
-                        else:
-                            self._run_deletion_request(request_mapping, site, level, items[:len(items) / 2], comments)
-                            self._run_deletion_request(request_mapping, site, level, items[len(items) / 2:], comments)
+            except:
+                LOG.error('Deletion %s failed.', str(options))
 
-            if len(result) != 0:
+                if self._phedex.last_errorcode == 400:
+                    # Sometimes we have invalid data in the list of objects to delete.
+                    # PhEDEx throws a 400 error in such a case. We have to then try to identify the
+                    # problematic item through trial and error.
+                    if len(items) == 1:
+                        LOG.error('Could not delete %s from %s', str(items[0]), site.name)
+                    else:
+                        LOG.info('Retrying with a reduced item list.')
+                        deleted_items.extend(self._run_deletion_request(operation_id, site, level, items[:len(items) / 2], comments))
+                        deleted_items.extend(self._run_deletion_request(operation_id, site, level, items[len(items) / 2:], comments))
+                else:
+                    raise
+            else:
                 request_id = int(result[0]['id']) # return value is a string
                 LOG.warning('PhEDEx deletion request id: %d', request_id)
 
@@ -147,15 +162,17 @@ class PhEDExDeletionInterface(DeletionInterface):
                     else:
                         approved = True
 
-                request_mapping[request_id] = (approved, site, items)
+                if not self.dry_run:
+                    self._history.query(history_sql, request_id, operation_id, approved)
 
-            else:
-                LOG.error('Deletion %s failed.', str(options))
-                # we should probably do something here
+                if approved:
+                    deleted_items.extend(items)
 
             request_catalog = {}
             chunk_size = 0
             items = []
+
+        return deleted_items
 
     def deletion_status(self, request_id): #override
         request = self._phedex.make_request('deleterequests', 'request=%d' % request_id)
