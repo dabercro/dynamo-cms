@@ -47,6 +47,10 @@ do
   cp -rf $SOURCE/$OBJ $DYNAMO/
 done
 
+mv $DYNAMO/defaults.json $SOURCE/.tmp/defaults.json
+tac $SOURCE/.tmp/defaults.json | sed '1 d; 2 s/$/,/' | tac > $DYNAMO/defaults.json
+tail -n +2 $SOURCE/defaults.json >> $DYNAMO/defaults.json
+
 ## INSTALL STANDARD DYNAMO
 
 $DYNAMO/install.sh $INSTALL_CONF || exit 1
