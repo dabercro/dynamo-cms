@@ -89,6 +89,6 @@ done
 # CLIs
 for FILE in $(ls $SOURCE/sbin)
 do
-  cp -f $SOURCE/sbin/$FILE $SYSBIN_PATH/$FILE
+  sed "s|_PYTHON_|$(which python)|" $SOURCE/sbin/$FILE > $SYSBIN_PATH/$FILE
   chmod 744 $SYSBIN_PATH/$FILE
 done
