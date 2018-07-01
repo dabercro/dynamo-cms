@@ -51,7 +51,7 @@ def customize_dataset(Dataset):
     # Enumerator for dataset type.
     # Starting from 1 to play better with MySQL
     Dataset._data_types = ['unknown', 'align', 'calib', 'cosmic', 'data', 'lumi', 'mc', 'raw', 'test']
-    for name, val in zip(Dataset._data_types, range(1, len(_data_types) + 1)):
+    for name, val in zip(Dataset._data_types, range(1, len(Dataset._data_types) + 1)):
         # e.g. Dataset.TYPE_UNKNOWN = 1
         setattr(Dataset, 'TYPE_' + name.upper(), val)
 
