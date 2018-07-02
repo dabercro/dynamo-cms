@@ -3,26 +3,12 @@
   "excluded_secondary_datasets": [],
   "num_update_datasets": 50,
   "groups": {
-    "module": "phedexgroupinfo:PhEDExGroupInfoSource",
-    "config": {
-      "dataset_level_groups": ["AnalysisOps", "IB RelVal", "RelVal"]
-    }
+    "dataset_level_groups": ["AnalysisOps", "IB RelVal", "RelVal"]
+  },
+  "sites": {
+    "ssb_cache_lifetime": 1800
   },
   "include_sites": ["T0_*", "T1_*", "T2_*"],
   "exclude_sites": ["T0_CH_CERN_Export", "T1_*_Buffer", "T2_CH_CERNBOX", "T2_MY_UPM_BIRUNI"],
-  "sites": {
-    "module": "phedexsiteinfo:PhEDExSiteInfoSource",
-    "config": {
-      "ssb_cache_lifetime": 1800
-    }
-  },
-  "datasets": {
-    "module": "phedexdatasetinfo:PhEDExDatasetInfoSource",
-    "config": {}
-  },
-  "replicas": {
-    "module": "phedexreplicainfo:PhEDExReplicaInfoSource",
-    "config": {}
-  },
   "log_level": "info"
 }

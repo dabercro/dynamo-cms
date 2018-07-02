@@ -51,7 +51,10 @@ LOG.info('Starting inventory update.')
 
 ## Load and initialize sources
 
-import dynamo.source.impl.phedexgroupinfo
+from dynamo.source.groupinfo import GroupInfoSource
+from dynamo.source.siteinfo import SiteInfoSource
+from dynamo.source.datasetinfo import DatasetInfoSource
+from dynamo.source.replicainfo import ReplicaInfoSource
 
 if 'include_sites' in config:
     config.sites.config.include = config.include_sites
@@ -66,10 +69,10 @@ if 'exclude_datasets' in config:
     config.datasets.config.exclude = config.exclude_datasets
     config.replicas.config.exclude_datasets = config.exclude_datasets
 
-group_source = sources.PhEDExGroupInfoSource(config.groups.config)
-site_source = sources.PhEDExSiteInfoSource(config.sites.config)
-dataset_source = sources.PhEDExDatasetInfoSource(config.datasets.config)
-replica_source = sources.PhEDExReplicaInfoSource(config.replicas.config)
+group_source = GroupInfoSource(config.get('groups', None))
+site_source = SiteInfoSource(config.get('sites', None))
+dataset_source = DatasetInfoSource(config.get('datasets', None))
+replica_source = ReplicaInfoSource(config.get('replicas', None))
 
 ## Start the update
 # 1. Refresh groups
