@@ -96,3 +96,7 @@ do
   sed "s|_PYTHON_|$(which python)|" $SOURCE/sbin/$FILE > $SYSBIN_PATH/$FILE
   chmod 744 $SYSBIN_PATH/$FILE
 done
+
+# Schedule
+
+cp -f $SOURCE/cms.seq /etc/dynamo/schedule.seq

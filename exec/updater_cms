@@ -50,7 +50,8 @@ if args.dataset_only and not args.datasets:
 LOG.info('Starting inventory update.')
 
 ## Load and initialize sources
-import dynamo.source.impl as sources
+
+import dynamo.source.impl.phedexgroupinfo
 
 if 'include_sites' in config:
     config.sites.config.include = config.include_sites

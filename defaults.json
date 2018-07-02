@@ -5,7 +5,7 @@
       "num_attempts": 5
     }
   },
-  "utils.interface.dbsx:DBS": {
+  "utils.interface.dbs:DBS": {
     "all": {
       "url_base": "https://cmsweb.cern.ch/dbs/prod/global/DBSReader",
       "num_attempts": 5
@@ -27,6 +27,36 @@
     "all": {
       "url_base": "http://dashb-ssb.cern.ch/dashboard/request.py",
       "num_attempts": 5
+    }
+  },
+  "source.datasetinfo:DatasetInfoSource": {
+    "all": {
+      "module": "phedexdatasetinfo:PhEDExDatasetInfoSource",
+      "config": {}
+    }
+  },
+  "source.groupinfo:GroupInfoSource": {
+    "all": {
+      "module": "phedexgroupinfo:PhEDExGroupInfoSource",
+      "config": {}
+    }
+  },
+  "source.replicainfo:ReplicaInfoSource": {
+    "all": {
+      "module": "phedexreplicainfo:PhEDExReplicaInfoSource",
+      "config": {}
+    }
+  },
+  "source.siteinfo:SiteInfoSource": {
+    "all": {
+      "module": "phedexsiteinfo:PhEDExSiteInfoSource",
+      "config": {}
+    }
+  },
+  "source.userinfo:UserInfoSource": {
+    "all": {
+      "module": "phedexuserinfo:PhEDExUserInfoSource",
+      "config": {}
     }
   }
 }
