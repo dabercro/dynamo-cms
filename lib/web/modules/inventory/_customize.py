@@ -8,7 +8,7 @@ def campaign_name(dataset):
 def customize_stats(categories):
     categories.categories = collections.OrderedDict([
         ('campaign', ('Production campaign', Dataset, campaign_name)),
-        ('data_tier', ('Data tier', Dataset, lambda d: d.name[d.name.rfind('/') + 1:]))
+        ('data_tier', ('Data tier', Dataset, lambda d: d.name[d.name.rfind('/') + 1:])),
         ('dataset_status', ('Dataset status', Dataset, lambda d: Dataset.status_name(d.status))),
         ('dataset', ('Dataset name', Dataset, lambda d: d.name)),
         ('site', ('Site name', Site, lambda s: s.name)),
