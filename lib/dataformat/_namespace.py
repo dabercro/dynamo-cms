@@ -57,19 +57,21 @@ def customize_dataset(Dataset):
 
     Dataset.SoftwareVersion.field_names = ('cycle', 'major', 'minor', 'suffix')
 
+    Dataset.format_software_version = staticmethod(Dataset_format_software_version)
+
     Dataset.name_pattern = re.compile('/[^/]+/[^/]+/[^/]+')
 
 def customize_block(Block):
-    Block.to_internal_name = Block_to_internal_name
-    Block.to_real_name = Block_to_real_name
-    Block.to_full_name = Block_to_full_name
-    Block.from_full_name = Block_from_full_name
+    Block.to_internal_name = staticmethod(Block_to_internal_name)
+    Block.to_real_name = staticmethod(Block_to_real_name)
+    Block.to_full_name = staticmethod(Block_to_full_name)
+    Block.from_full_name = staticmethod(Block_from_full_name)
 
     hex_chars = '[0-9a-fA-F]'
     Block.name_pattern = re.compile('{h}{{8}}-{h}{{4}}-{h}{{4}}-{h}{{4}}-{h}{{12}}'.format(h = hex_chars))
 
 def customize_blockreplica(BlockReplica):
-    BlockReplica._use_file_ids = False
+    BlockReplica._use_file_ids = True
 
 def customize_site(Site):
     Site.to_pfn = Site_to_pfn

@@ -3,7 +3,8 @@ import logging
 from dynamo.source.replicainfo import ReplicaInfoSource
 from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.parallel import Map
-from dynamo.dataformat import Group, Site, Dataset, Block, DatasetReplica, BlockReplica, Configuration
+from dynamo.dataformat import Group, Site, Dataset, Block, File
+from dynamo.dataformat import DatasetReplica, BlockReplica, Configuration
 
 LOG = logging.getLogger(__name__)
 
@@ -84,9 +85,9 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         if len(options) == 0:
             return []
         
-        result = self._phedex.make_request('blockreplicas', ['show_dataset=y'] + options, timeout = 3600)
+        result = self._phedex.make_request('filereplicas', options, timeout = 3600)
 
-        block_replicas = PhEDExReplicaInfoSource.make_block_replicas(result, PhEDExReplicaInfoSource.maker_blockreplicas, site_check = site_check, dataset_check = dataset_check)
+        block_replicas = PhEDExReplicaInfoSource.make_block_replicas(result, PhEDExReplicaInfoSource.maker_filereplicas, site_check = site_check, dataset_check = dataset_check)
         
         # Also use subscriptions call which has a lower latency than blockreplicas
         # For example, group change on a block replica at time T may not show up in blockreplicas until up to T + 15 minutes
@@ -149,7 +150,7 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                                         replica.files = None
                                     else:
                                         # should in principle set to the list of file ids, but CMS instance does not use file-level information at the moment
-                                        replica.files = (,)
+                                        replica.files = tuple()
                                     replica.is_custodial = (sub_entry['custodial'] == 'y')
                                     replica.size = sub_entry['node_bytes']
                                     if sub_entry['time_update'] is not None:
@@ -169,17 +170,32 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
             nodes.append(entry['name'])
 
-        args = [('blockreplicas', ['show_dataset=y', 'update_since=%d' % updated_since, 'node=%s' % node]) for node in nodes]
-
         parallelizer = Map()
         parallelizer.timeout = 7200
-        results = parallelizer.execute(self._phedex.make_request, args)
 
-        all_replicas = []
-        for result in results:
-            all_replicas.extend(result)
+        # Use async to fire threads on demand
+        arguments = [('blockreplicas', ['update_since=%d' % updated_since, 'node=%s' % node]) for node in nodes]
+        block_replicas = parallelizer.execute(self._phedex.make_request, arguments, callback = PhEDExReplicaInfoSource.combine_file_info, async = True)
 
-        return PhEDExReplicaInfoSource.make_block_replicas(all_replicas, PhEDExReplicaInfoSource.maker_blockreplicas, dataset_check = self.check_allowed_dataset)
+        def make_block_entry_with_files(block_entry):
+            try:
+                new_block_entry = self._phedex.make_request('filereplicas', ['block=%s' % block_entry['name'], 'node=%s' % block_entry['replica'][0]['node']])[0]
+            except IndexError:
+                # Somehow PhEDEx didn't have a filereplicas entry for this block at this node
+                new_block_entry = block_entry
+                new_block_entry['file'] = []
+            else:
+                new_block_entry['replica'] = block_entry['replica']
+
+            return new_block_entry
+            
+        # Automatically starts a thread as we add the output of block_replicas
+        entry_maker = parallelizer.get_starter(make_block_entry_with_files)
+
+        for block_entry in block_replicas:
+            entry_maker.add_input(block_entry)
+
+        return PhEDExReplicaInfoSource.make_block_replicas(entry_maker.get_outputs(), PhEDExReplicaInfoSource.maker_filereplicas, dataset_check = self.check_allowed_dataset)
 
     def get_deleted_replicas(self, deleted_since): #override
         LOG.info('get_deleted_replicas(%d)  Fetching the list of replicas from PhEDEx', deleted_since)
@@ -189,63 +205,133 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         return PhEDExReplicaInfoSource.make_block_replicas(result, PhEDExReplicaInfoSource.maker_deletions)
 
     @staticmethod
-    def make_block_replicas(dataset_entries, replica_maker, site_check = None, dataset_check = None):
+    def make_block_replicas(block_entries, replica_maker, site_check = None, dataset_check = None):
         """Return a list of block replicas linked to Dataset, Block, Site, and Group"""
 
+        dataset = None
         block_replicas = []
 
-        for dataset_entry in dataset_entries:
-            if dataset_check and not dataset_check(dataset_entry['name']):
+        for block_entry in block_entries:
+            try:
+                dataset_name, block_name = Block.from_full_name(block_entry['name'])
+            except ValueError: # invalid name
                 continue
 
-            dataset = Dataset(
-                dataset_entry['name']
-            )
-            
-            for block_entry in dataset_entry['block']:
-                try:
-                    _, block_name = Block.from_full_name(block_entry['name'])
-                except ValueError: # invalid name
+            if dataset is None or dataset.name != dataset_name:
+                if dataset_check and not dataset_check(dataset_name):
                     continue
-
-                block = Block(
-                    block_name,
-                    dataset,
-                    block_entry['bytes']
+    
+                dataset = Dataset(
+                    dataset_name
                 )
+            
+            block = Block(
+                block_name,
+                dataset,
+                block_entry['bytes']
+            )
 
-                block_replicas.extend(replica_maker(block, block_entry, site_check = site_check))
+            block_replicas.extend(replica_maker(block, block_entry, site_check = site_check))
 
         return block_replicas
 
     @staticmethod
-    def maker_blockreplicas(block, block_entry, site_check = None):
-        replicas = []
+    def maker_filereplicas(block, block_entry, site_check = None):
+        """Return a list of block replicas using filereplicas data or a combination of blockreplicas and filereplicas calls."""
 
-        for replica_entry in block_entry['replica']:
-            if site_check and not site_check(replica_entry['node']):
-                continue
+        block.files = set()
 
-            time_update = replica_entry['time_update']
-            if time_update is None:
-                time_update = 0
+        block_replicas = {}
+        groups = {}
+        invalid_sites = set()
 
-            block_replica = BlockReplica(
-                block,
-                Site(replica_entry['node']),
-                Group(replica_entry['group']),
-                is_custodial = (replica_entry['custodial'] == 'y'),
-                size = replica_entry['bytes'],
-                last_update = int(time_update)
-            )
+        for file_entry in block_entry['file']:
+            lfile = File(file_entry['name'], block, size = file_entry['bytes'])
+            block.files.add(lfile)
+            
+            for replica_entry in file_entry['replica']:
+                site_name = replica_entry['node']
+                try:
+                    block_replica = block_replicas[site_name]
+                except KeyError:
+                    if site_name in invalid_sites:
+                        continue
 
-            if replica_entry['bytes'] != block.size:
-                # see note above on block_replica.files
-                block_replica.files = (,)
+                    if site_check and not site_check(site_name):
+                        invalid_sites.add(site_name)
+                        continue
 
-            replicas.append(block_replica)
+                    site = Site(site_name)
 
-        return replicas
+                    group_name = replica_entry['group']
+                    try:
+                        group = groups[group_name]
+                    except KeyError:
+                        group = Group(group_name)
+
+                    block_replica = block_replicas[site_name] = BlockReplica(
+                        block,
+                        site,
+                        group,
+                        is_custodial = (replica_entry['custodial'] == 'y'),
+                        last_update = 0
+                    )
+                    # temporarily make this a list
+                    block_replica.file_ids = []
+
+                try:
+                    time_create = int(replica_entry['time_create'])
+                except TypeError:
+                    pass
+                else:
+                    if time_create > block_replica.last_update:
+                        block_replica.last_update = time_create
+
+                block_replica.file_ids.append(file_entry['name'])
+                block_replica.size += lfile.size
+
+        for block_replica in block_replicas.itervalues():
+            block_replica.file_ids = tuple(block_replica.file_ids)
+
+        # if combined source was given, add some more information
+        if 'replica' in block_entry:
+            for replica_entry in block_entry['replica']:
+                try:
+                    block_replica = block_replicas[site_name]
+                except KeyError:
+                    if site_name in invalid_sites:
+                        continue
+
+                    if site_check and not site_check(site_name):
+                        invalid_sites.add(site_name)
+                        continue
+
+                    site = Site(site_name)
+
+                    group_name = replica_entry['group']
+                    try:
+                        group = groups[group_name]
+                    except KeyError:
+                        group = Group(group_name)
+
+                    block_replica = block_replicas[site_name] = BlockReplica(
+                        block,
+                        site,
+                        group,
+                        is_custodial = (replica_entry['custodial'] == 'y'),
+                        size = 0,
+                        last_update = 0
+                    )
+
+                try:
+                    time_update = int(replica_entry['time_update'])
+                except TypeError:
+                    pass
+                else:
+                    if time_update > block_replica.last_update:
+                        block_replica.last_update = time_update
+               
+        return block_replicas.values()
 
     @staticmethod
     def maker_deletions(block, block_entry, site_check = None):
