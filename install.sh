@@ -54,7 +54,8 @@ tail -n +2 $SOURCE/defaults.json >> $DYNAMO/defaults.json
 
 ## INSTALL STANDARD DYNAMO
 
-$DYNAMO/install.sh $INSTALL_CONF || exit 1
+$DYNAMO/install.sh $INSTALL_CONF
+RC=$?
 
 ## RESTORE THE STANDARD INSTALLATION DIRECTORY
 
@@ -64,6 +65,11 @@ do
 done
 
 cp -rf $SOURCE/.tmp/* $DYNAMO/
+rm -rf $SOURCE/.tmp
+
+## ABORT IF FAILED
+
+[ $RC -eq 0 ] || exit $RC
 
 ## COPY POST-INSTALL ITEMS
 

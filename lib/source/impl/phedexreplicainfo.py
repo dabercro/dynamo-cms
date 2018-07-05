@@ -1,4 +1,5 @@
 import logging
+import collections
 
 from dynamo.source.replicainfo import ReplicaInfoSource
 from dynamo.utils.interface.phedex import PhEDEx
@@ -85,9 +86,22 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         if len(options) == 0:
             return []
         
-        result = self._phedex.make_request('filereplicas', options, timeout = 3600)
+        block_entries = self._phedex.make_request('blockreplicas', options, timeout = 3600)
 
-        block_replicas = PhEDExReplicaInfoSource.make_block_replicas(result, PhEDExReplicaInfoSource.maker_filereplicas, site_check = site_check, dataset_check = dataset_check)
+        parallelizer = Map()
+        parallelizer.timeout = 3600
+
+        # Automatically starts a thread as we add the output of block_entries
+        combine_file = parallelizer.get_starter(self._combine_file_info)
+
+        for block_entry in block_entries:
+            if block_entry['replica'][0]['complete'] == 'n':
+                combine_file.add_input(block_entry)
+
+        # _combine_file_info alters block_entries directly - no need to deal with output
+        combine_file.get_outputs()
+
+        block_replicas = PhEDExReplicaInfoSource.make_block_replicas(block_entries, PhEDExReplicaInfoSource.maker_blockreplicas, site_check = site_check, dataset_check = dataset_check)
         
         # Also use subscriptions call which has a lower latency than blockreplicas
         # For example, group change on a block replica at time T may not show up in blockreplicas until up to T + 15 minutes
@@ -96,9 +110,13 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         if dataset is None and block is None:
             return block_replicas
 
-        result = self._phedex.make_request('subscriptions', options, timeout = 3600)
+        indexed = collections.defaultdict(dict)
+        for replica in block_replicas:
+            indexed[(replica.site.name, replica.block.dataset.name)][replica.block.name] = replica
 
-        for dataset_entry in result:
+        dataset_entries = self._phedex.make_request('subscriptions', options, timeout = 3600)
+
+        for dataset_entry in dataset_entries:
             dataset_name = dataset_entry['name']
 
             if not self.check_allowed_dataset(dataset_name):
@@ -115,10 +133,11 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                     if not self.check_allowed_site(site_name):
                         continue
 
-                    for replica in block_replicas:
-                        if replica.block.dataset.name == dataset_name and replica.site.name == site_name:
-                            replica.group = Group(sub_entry['group'])
-                            replica.is_custodial = (sub_entry['custodial'] == 'y')
+                    replicas = indexed[(site_name, dataset_name)]
+
+                    for replica in replicas.itervalues():
+                        replica.group = Group(sub_entry['group'])
+                        replica.is_custodial = (sub_entry['custodial'] == 'y')
 
             try:
                 block_entries = dataset_entry['block']
@@ -131,32 +150,36 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                     try:
                         subscriptions = block_entry['subscription']
                     except KeyError:
-                        pass
-                    else:
-                        for sub_entry in subscriptions:
-                            site_name = sub_entry['node']
+                        continue
 
-                            if not self.check_allowed_site(site_name):
-                                continue
+                    for sub_entry in subscriptions:
+                        site_name = sub_entry['node']
 
-                            for replica in block_replicas:
-                                if replica.block.dataset.name == dataset_name and \
-                                        replica.block.name == block_name and \
-                                        replica.site.name == site_name:
+                        if not self.check_allowed_site(site_name):
+                            continue
 
-                                    replica.group = Group(sub_entry['group'])
-                                    if sub_entry['node_bytes'] == block_entry['bytes']:
-                                        # complete
-                                        replica.files = None
-                                    else:
-                                        # should in principle set to the list of file ids, but CMS instance does not use file-level information at the moment
-                                        replica.files = tuple()
-                                    replica.is_custodial = (sub_entry['custodial'] == 'y')
-                                    replica.size = sub_entry['node_bytes']
-                                    if sub_entry['time_update'] is not None:
-                                        replica.last_update = 0
-                                    else:
-                                        replica.last_update = int(sub_entry['time_update'])
+                        try:
+                            replica = indexed[(site_name, dataset_name)][block_name]
+                        except KeyError:
+                            continue
+
+                        replica.group = Group(sub_entry['group'])
+
+                        if sub_entry['node_bytes'] == block_entry['bytes']:
+                            # complete
+                            replica.size = sub_entry['node_bytes']
+                            replica.files = None
+                        else:
+                            # incomplete - since we cannot know what files are there, we'll just have to pretend there is none
+                            replica.size = 0
+                            replica.files = tuple()
+
+                        replica.is_custodial = (sub_entry['custodial'] == 'y')
+
+                        if sub_entry['time_update'] is not None:
+                            replica.last_update = 0
+                        else:
+                            replica.last_update = int(sub_entry['time_update'])
 
         return block_replicas
 
@@ -171,31 +194,28 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
             nodes.append(entry['name'])
 
         parallelizer = Map()
-        parallelizer.timeout = 7200
+        parallelizer.timeout = 3600
 
         # Use async to fire threads on demand
         arguments = [('blockreplicas', ['update_since=%d' % updated_since, 'node=%s' % node]) for node in nodes]
-        block_replicas = parallelizer.execute(self._phedex.make_request, arguments, callback = PhEDExReplicaInfoSource.combine_file_info, async = True)
+        node_results = parallelizer.execute(self._phedex.make_request, arguments, async = True)
 
-        def make_block_entry_with_files(block_entry):
-            try:
-                new_block_entry = self._phedex.make_request('filereplicas', ['block=%s' % block_entry['name'], 'node=%s' % block_entry['replica'][0]['node']])[0]
-            except IndexError:
-                # Somehow PhEDEx didn't have a filereplicas entry for this block at this node
-                new_block_entry = block_entry
-                new_block_entry['file'] = []
-            else:
-                new_block_entry['replica'] = block_entry['replica']
-
-            return new_block_entry
-            
         # Automatically starts a thread as we add the output of block_replicas
-        entry_maker = parallelizer.get_starter(make_block_entry_with_files)
+        combine_file = parallelizer.get_starter(self._combine_file_info)
 
-        for block_entry in block_replicas:
-            entry_maker.add_input(block_entry)
+        block_entries = []
 
-        return PhEDExReplicaInfoSource.make_block_replicas(entry_maker.get_outputs(), PhEDExReplicaInfoSource.maker_filereplicas, dataset_check = self.check_allowed_dataset)
+        for node_block_entries in node_results:
+            for block_entry in node_block_entries:
+                block_entries.append(block_entry)
+
+                if block_entry['replica'][0]['complete'] == 'n':
+                    combine_file.add_input(block_entry)
+
+        # _combine_file_info alters block_entries directly - no need to deal with output
+        combine_file.get_outputs()
+
+        return PhEDExReplicaInfoSource.make_block_replicas(block_entries, PhEDExReplicaInfoSource.maker_blockreplicas, dataset_check = self.check_allowed_dataset)
 
     def get_deleted_replicas(self, deleted_since): #override
         LOG.info('get_deleted_replicas(%d)  Fetching the list of replicas from PhEDEx', deleted_since)
@@ -203,6 +223,16 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         result = self._phedex.make_request('deletions', ['complete_since=%d' % deleted_since], timeout = 7200)
 
         return PhEDExReplicaInfoSource.make_block_replicas(result, PhEDExReplicaInfoSource.maker_deletions)
+
+    def _combine_file_info(self, block_entry):
+        try:
+            LOG.debug('_combine_file_info(%s, %s) Fetching file replicas from PhEDEx', block_entry['name'], block_entry['replica'][0]['node'])
+            file_info = self._phedex.make_request('filereplicas', ['block=%s' % block_entry['name'], 'node=%s' % block_entry['replica'][0]['node']])[0]['file']
+        except (IndexError, KeyError):
+            # Somehow PhEDEx didn't have a filereplicas entry for this block at this node
+            block_entry['file'] = []
+        else:
+            block_entry['file'] = file_info
 
     @staticmethod
     def make_block_replicas(block_entries, replica_maker, site_check = None, dataset_check = None):
@@ -236,101 +266,84 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         return block_replicas
 
     @staticmethod
-    def maker_filereplicas(block, block_entry, site_check = None):
-        """Return a list of block replicas using filereplicas data or a combination of blockreplicas and filereplicas calls."""
+    def maker_blockreplicas(block, block_entry, site_check = None):
+        """Return a list of block replicas using blockreplicas data or a combination of blockreplicas and filereplicas calls."""
 
-        block.files = set()
+        sites = {}
+        invalid_sites = set()
+        groups = {}
 
         block_replicas = {}
-        groups = {}
-        invalid_sites = set()
 
-        for file_entry in block_entry['file']:
-            lfile = File(file_entry['name'], block, size = file_entry['bytes'])
-            block.files.add(lfile)
-            
-            for replica_entry in file_entry['replica']:
-                site_name = replica_entry['node']
-                try:
-                    block_replica = block_replicas[site_name]
-                except KeyError:
+        for replica_entry in block_entry['replica']:
+            site_name = replica_entry['node']
+            try:
+                site = sites[site_name]
+            except KeyError:
+                if site_check:
                     if site_name in invalid_sites:
                         continue
-
-                    if site_check and not site_check(site_name):
+                    if not site_check(site_name):
                         invalid_sites.add(site_name)
                         continue
+    
+                site = sites[site_name] = Site(site_name)
 
-                    site = Site(site_name)
+            group_name = replica_entry['group']
+            try:
+                group = groups[group_name]
+            except KeyError:
+                group = groups[group_name] = Group(group_name)
 
-                    group_name = replica_entry['group']
+            try:
+                time_update = int(replica_entry['time_update'])
+            except TypeError:
+                # time_update was None
+                time_update = 0
+
+            block_replica = BlockReplica(
+                block,
+                site,
+                group,
+                is_custodial = (replica_entry['custodial'] == 'y'),
+                last_update = time_update
+            )
+
+            block_replicas[site_name] = block_replica
+
+            if replica_entry['complete'] == 'n':
+                # temporarily make this a list
+                block_replica.file_ids = []
+                block_replica.size = 0
+
+        if 'file' in block_entry:
+            for file_entry in block_entry['file']:
+                for replica_entry in file_entry['replica']:
+                    site_name = replica_entry['node']
                     try:
-                        group = groups[group_name]
+                        block_replica = block_replicas[site_name]
                     except KeyError:
-                        group = Group(group_name)
-
-                    block_replica = block_replicas[site_name] = BlockReplica(
-                        block,
-                        site,
-                        group,
-                        is_custodial = (replica_entry['custodial'] == 'y'),
-                        last_update = 0
-                    )
-                    # temporarily make this a list
-                    block_replica.file_ids = []
-
-                try:
-                    time_create = int(replica_entry['time_create'])
-                except TypeError:
-                    pass
-                else:
-                    if time_create > block_replica.last_update:
-                        block_replica.last_update = time_create
-
-                block_replica.file_ids.append(file_entry['name'])
-                block_replica.size += lfile.size
+                        continue
+    
+                    if block_replica.file_ids is None:
+                        continue
+    
+                    # add LFN instead of file id
+                    block_replica.file_ids.append(file_entry['name'])
+                    block_replica.size += file_entry['bytes']
+    
+                    try:
+                        time_create = int(replica_entry['time_create'])
+                    except TypeError:
+                        pass
+                    else:
+                        if time_create > block_replica.last_update:
+                            block_replica.last_update = time_create
 
         for block_replica in block_replicas.itervalues():
-            block_replica.file_ids = tuple(block_replica.file_ids)
+            if block_replica.file_ids is not None:
+                block_replica.file_ids = tuple(block_replica.file_ids)
 
-        # if combined source was given, add some more information
-        if 'replica' in block_entry:
-            for replica_entry in block_entry['replica']:
-                try:
-                    block_replica = block_replicas[site_name]
-                except KeyError:
-                    if site_name in invalid_sites:
-                        continue
-
-                    if site_check and not site_check(site_name):
-                        invalid_sites.add(site_name)
-                        continue
-
-                    site = Site(site_name)
-
-                    group_name = replica_entry['group']
-                    try:
-                        group = groups[group_name]
-                    except KeyError:
-                        group = Group(group_name)
-
-                    block_replica = block_replicas[site_name] = BlockReplica(
-                        block,
-                        site,
-                        group,
-                        is_custodial = (replica_entry['custodial'] == 'y'),
-                        size = 0,
-                        last_update = 0
-                    )
-
-                try:
-                    time_update = int(replica_entry['time_update'])
-                except TypeError:
-                    pass
-                else:
-                    if time_update > block_replica.last_update:
-                        block_replica.last_update = time_update
-               
         return block_replicas.values()
 
     @staticmethod
