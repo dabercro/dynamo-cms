@@ -81,6 +81,23 @@ site_source = SiteInfoSource.get_instance(None, config.sites)
 dataset_source = DatasetInfoSource.get_instance(None, config.datasets)
 replica_source = ReplicaInfoSource.get_instance(None, config.replicas)
 
+## Tools for file-level operations
+
+from dynamo.fileop.rlfsm import RLFSM
+from dynamo.operation.impl.phedexcopy import PhEDExCopyInterface
+from dynamo.operation.impl.phedexdeletion import PhEDExDeletionInterface
+from dynamo.operation.history import DeletionHistoryDatabase, CopyHistoryDatabase
+
+phedex_copy = PhEDExCopyInterface()
+phedex_deletion = PhEDExDeletionInterface()
+copy_history = CopyHistoryDatabase()
+deletion_history = DeletionHistoryDatabase()
+
+phedex_copy.set_read_only(read_only)
+phedex_deletion.set_read_only(read_only)
+copy_history.set_read_only(read_only)
+deletion_history.set_read_only(read_only)
+
 ## Start the update
 # 1. Refresh groups
 # 2. Get the list of block replicas and dataset names to update
@@ -90,7 +107,8 @@ replica_source = ReplicaInfoSource.get_instance(None, config.replicas)
 # 6. Loop over deleted replicas
 # 7. Save the execution state
 
-from dynamo.dataformat import Dataset, Block, File, DatasetReplica, BlockReplica, ObjectError
+from dynamo.dataformat import Dataset, Block, File, Group, DatasetReplica, BlockReplica, ObjectError
+from dynamo.dataformat.history import DeletedReplica, CopiedReplica, HistoryRecord
 from dynamo.utils.parallel import Map
 
 parallelizer = Map()
@@ -598,5 +616,280 @@ if not read_only and args.mode is not None and os.path.exists(config.updater_sta
 
     state_db.commit()
     state_db.close()
+
+# 8. Deal with Dynamo-run transfers and deletions
+
+from dynamo.utils.interface.mysql import MySQL
+
+LOG.info('Collecting in-house transfers and deletions.')
+
+reservations_db = MySQL(config.reservations_db_params)
+
+subscriptions = rlfsm.get_subscriptions(inventory, status = ['done'])
+
+completed_subscriptions = {}
+transferred_files = {}
+completed_desubscriptions = {}
+deleted_files = {}
+
+for sub in subscriptions:
+    key = (sub.file.block, sub.destination)
+
+    if type(sub) is RLFSM.Subscription:
+        try:
+            completed_subscriptions[key].append(sub.id)
+            transferred_files[key].append(sub.file.id)
+        except KeyError:
+            completed_subscriptions[key] = [sub.id]
+            transferred_files[key] = [sub.file.id]
+    else:
+        try:
+            completed_desubscriptions[key].append(sub.id)
+            deleted_files[key].append(sub.file.id)
+        except KeyError:
+            completed_desubscriptions[key] = [sub.id]
+            deleted_files[key] = [sub.file.id]
+
+for key, file_ids in transferred_files.iteritems():
+    block, site = key
+    replica = block.find_replica(site)
+
+    if replica is None:
+        # replica doesn't exist yet
+        if set(f.id for f in block.files) != set(file_ids):
+            # and it's not complete yet
+            completed_subscriptions.pop(key)
+
+    elif replica.file_ids is None:
+        # is already full
+        pass
+
+    else:
+        file_ids.extend(replica.file_ids)
+        if set(f.id for f in block.files) != set(file_ids):
+            completed_subscriptions.pop(key)
+
+for key, file_ids in deleted_files.iteritems():
+    block, site = key
+    replica = block.find_replica(site)
+
+    if replica is None:
+        # didn't even exist to begin with
+        pass
+    elif replica.file_ids is None:
+        if set(f.id for f in block.files) != set(file_ids):
+            completed_desubscriptions.pop(key)
+    else:
+        if set(replica.file_ids) > set(file_ids):
+            completed_desubscriptions.pop(key)
+
+# Completed_subscriptions and completed_desubscriptions now contain (block, site) => [subscription ids] of (de)subscriptions
+# that may be ready to be reported to PhEDEx
+
+done_subscription_ids = []
+
+# First deal with copies
+
+done_transfer_reservation_ids = []
+copy_replica_list = {}
+
+for rid, item_name, site_name, group_name in reservations_db.query('SELECT `id`, `item`, `site`, `group` FROM `phedex_transfer_reservations`'):
+    try:
+        dataset_name, block_name = Block.from_full_name(item_name)
+    except ObjectError:
+        dataset_name = item_name
+        block_name = None
+
+    try:
+        dataset = inventory.datasets[dataset_name]
+        site = inventory.sites[site_name]
+        group = inventory.groups[group_name]
+    except KeyError:
+        # shouldn't happen
+        if not read_only:
+            reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
+        continue
+
+    if block_name is None:
+        dataset_done_ids = []
+        for block in dataset.blocks:
+            try:
+                dataset_done_ids.extend(completed_subscriptions[(block, site)])
+            except KeyError:
+                break
+
+        else:
+            # All blocks completed
+            done_subscription_ids.extend(dataset_done_ids)
+            done_transfer_reservation_ids.append(rid)
+
+            replica = DatasetReplica(dataset, site, growing = True, group = group)
+            for block in dataset.blocks:
+                replica.block_replicas.add(BlockReplica(block, site, group, size = 0))
+
+            copy_replica_list[(dataset, site)] = replica
+
+    else:
+        block = dataset.find_block(block_name)
+        if block is None:
+            # shouldn't happen
+            if not read_only:
+                reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
+            continue
+
+        try:
+            done_subscription_ids.extend(completed_subscriptions[(block, site)])
+        except KeyError:
+            continue
+
+        done_transfer_reservation_ids.append(rid)
+
+        try:
+            replica = copy_replica_list[(dataset, site)]
+        except KeyError:
+            replica = copy_replica_list[(dataset, site)] = DatasetReplica(dataset, site, growing = False)
+        else:
+            if replica.growing:
+                continue
+
+        # size = 0 because PhEDEx must ultimately confirm the replica and report back
+        replica.block_replicas.add(BlockReplica(block, site, group, size = 0))
+
+# Then deal with deletions
+
+done_deletion_reservation_ids = []
+deletion_replica_list = {}
+
+for rid, item_name, site_name in reservations_db.query('SELECT `id`, `item`, `site` FROM `phedex_deletion_reservations`'):
+    try:
+        dataset_name, block_name = Block.from_full_name(item_name)
+    except ObjectError:
+        dataset_name = item_name
+        block_name = None
+
+    try:
+        dataset = inventory.datasets[dataset_name]
+        site = inventory.sites[site_name]
+    except KeyError:
+        # shouldn't happen
+        if not read_only:
+            reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
+        continue
+
+    replica = site.find_dataset_replica(dataset)
+    if replica is None:
+        # already gone
+        if not read_only:
+            reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
+        continue
+
+    if block_name is None:
+        dataset_done_ids = []
+        for block in dataset.blocks:
+            try:
+                dataset_done_ids.extend(completed_desubscriptions[(block, site)])
+            except KeyError:
+                break
+
+        else:
+            # All blocks completed
+            done_subscription_ids.extend(dataset_done_ids)
+            done_deletion_reservation_ids.append(rid)
+
+            deletion_replica_list[replica] = None
+
+    else:
+        block = dataset.find_block(block_name)
+        if block is None:
+            # shouldn't happen
+            if not read_only:
+                reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
+            continue
+
+        try:
+            done_subscription_ids.extend(completed_subscriptions[(block, site)])
+        except KeyError:
+            continue
+
+        done_deletion_reservation_ids.append(rid)
+
+        block_replica = block.find_replica(site)
+
+        if replica not in deletion_replica_list:
+            deletion_replica_list[replica] = [block_replica]
+        elif deletion_replica_list[replica] is not None:
+            deletion_replica_list[replica].append(block_replica)
+
+# Execute on PhEDEx
+
+by_site = {}
+for replica in copy_replica_list.itervalues():
+    try:
+        by_site[replica.site].append(replica)
+    except KeyError:
+        by_site[replica.site] = [replica]
+
+for site, replicas in by_site.iteritems():
+    history_record = copy_history.make_entry(site.name)
+
+    scheduled_replicas = phedex_copy.schedule_copies(replicas, history_record.operation_id)
+
+    for replica in scheduled_replicas:
+        history_record.replicas.append(CopiedReplica(replica.dataset.name, replica.size(physical = False), HistoryRecord.ST_ENROUTE))
+
+        inventory.update(replica)
+        for block_replica in replica.block_replicas:
+            inventory.update(block_replica)
+
+    copy_history.update_entry(history_record)
+
+by_site = {}
+for replica, block_replicas in deletion_replica_list.iteritems():
+    try:
+        by_site[replica.site].append((replica, block_replicas))
+    except KeyError:
+        by_site[replica.site] = [(replica, block_replicas)]
+
+for site, replica_list in by_site.iteritems():
+    history_record = deletion_history.make_entry(site.name)
+
+    scheduled_replicas = phedex_deletion.schedule_copies(replica_list, history_record.operation_id)
+
+    for replica, block_replicas in scheduled_replicas:
+        deleted_size = 0
+
+        if block_replicas is None:
+            replica.growing = False
+            replica.group = Group.null_group
+            # replica is a clone -> use inventory.update instead of inventory.register_update
+            inventory.update(replica)
+
+            original_replica = replica.site.find_dataset_replica(replica.dataset)
+            for block_replica in original_replica.block_replicas:
+                block_replica.group = Group.null_group
+                inventory.register_update(block_replica)
+
+            deleted_size += original_replica.size()
+
+        else:
+            for block_replica in block_replicas:
+                block_replica.group = Group.null_group
+                inventory.update(block_replica)
+
+                deleted_size += block_replica.size
+
+        history_record.replicas.append(DeletedReplica(replica.dataset.name, deleted_size))
+
+    deletion_history.update_entry(history_record)
+
+# Remove completed reservations
+if not read_only:
+    reservations_db.delete_many('phedex_transfer_reservations', 'id', done_transfer_reservation_ids)
+    reservations_db.delete_many('phedex_deletion_reservations', 'id', done_deletion_reservation_ids)
+
+# Remove subscription entries with status 'done'
+# This is dangerous though - if inventory update fails on the server side for some reason,
+# we might not see the inconsistency for a while.
+rlfsm.close_subscriptions(done_subscription_ids)
 
 LOG.info('Inventory update completed.')

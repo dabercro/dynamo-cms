@@ -5,7 +5,7 @@ import collections
 from dynamo.operation.copy import CopyInterface
 from dynamo.utils.interface.webservice import POST
 from dynamo.utils.interface.phedex import PhEDEx
-from dynamo.utils.interface.mysql import MySQL
+from dynamo.history.history import HistoryDatabase
 from dynamo.dataformat import DatasetReplica, Configuration
 
 LOG = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class PhEDExCopyInterface(CopyInterface):
 
         self._phedex = PhEDEx(config.get('phedex', None))
 
-        self._history = MySQL(config.history)
+        self._history = HistoryDatabase(config.get('history', None))
 
         self.subscription_chunk_size = config.get('chunk_size', 50.) * 1.e+12
 
@@ -128,7 +128,7 @@ class PhEDExCopyInterface(CopyInterface):
                 request_id = int(result[0]['id']) # return value is a string
                 LOG.warning('PhEDEx subscription request id: %d', request_id)
                 if not self.dry_run:
-                    self._history.query(history_sql, request_id, operation_id, True)
+                    self._history.db.query(history_sql, request_id, operation_id, True)
 
                 for dataset, blocks in request_catalog.iteritems():
                     if level == 'dataset':

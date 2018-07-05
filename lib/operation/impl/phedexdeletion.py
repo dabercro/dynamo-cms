@@ -5,7 +5,7 @@ import collections
 from dynamo.operation.deletion import DeletionInterface
 from dynamo.utils.interface.webservice import POST
 from dynamo.utils.interface.phedex import PhEDEx
-from dynamo.utils.interface.mysql import MySQL
+from dynamo.history.history import HistoryDatabase
 from dynamo.dataformat import DatasetReplica, BlockReplica, Site, Group, Configuration
 
 LOG = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class PhEDExDeletionInterface(DeletionInterface):
 
         self._phedex = PhEDEx(config.get('phedex', None))
 
-        self._history = MySQL(config.history)
+        self._history = HistoryDatabase(config.get('history', None))
 
         self.auto_approval = config.get('auto_approval', True)
         self.allow_tape_deletion = config.get('allow_tape_deletion', False)
@@ -163,7 +163,7 @@ class PhEDExDeletionInterface(DeletionInterface):
                         approved = True
 
                 if not self.dry_run:
-                    self._history.query(history_sql, request_id, operation_id, approved)
+                    self._history.db.query(history_sql, request_id, operation_id, approved)
 
                 if approved:
                     deleted_items.extend(items)
