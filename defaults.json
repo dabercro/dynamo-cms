@@ -1,7 +1,7 @@
 {
   "operation.copy:CopyInterface": {
     "fullauth": {
-      "module": "fodphedexcopy:FODPhEDExReserveCopyInterface",
+      "module": "rlfsmphedexcopy:RLFSMPhEDExReserveCopyInterface",
       "config": {
         "reserve_db_params": {
           "db": "dynamo"
@@ -15,7 +15,7 @@
   },
   "operation.deletion:DeletionInterface": {
     "fullauth": {
-      "module": "fodphedexdeletion:FODPhEDExReserveDeletionInterface",
+      "module": "rlfsmphedexdeletion:RLFSMPhEDExReserveDeletionInterface",
       "config": {
         "reserve_db_params": {
           "db": "dynamo"

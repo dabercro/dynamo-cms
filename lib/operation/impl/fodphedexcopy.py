@@ -8,14 +8,14 @@ from dynamo.utils.interface.mysql import MySQL
 
 LOG = logging.getLogger(__name__)
 
-class FODPhEDExReserveCopyInterface(CopyInterface):
+class RLFSMPhEDExReserveCopyInterface(CopyInterface):
     """
-    CopyInterface using the Dynamo FOD.
+    CopyInterface using the Dynamo RLFSM.
     """
 
     def __init__(self, config = None):
         CopyInterface.__init__(self, config)
-        self.rlfsm = RLFSM(config.get('fod', None))
+        self.rlfsm = RLFSM(config.get('rlfsm', None))
         self.mysql = MySQL(config.reserve_db_params)
 
     def set_read_only(self, value = True): #override
