@@ -2,7 +2,7 @@ import time
 import logging
 import threading
 
-from dynamo.dataformat import Site
+from dynamo.dataformat import Configuration, Site
 from dynamo.source.siteinfo import SiteInfoSource
 from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.interface.ssb import SiteStatusBoard
@@ -47,13 +47,15 @@ def lfn_to_pfn(lfn, protocol, xml):
 class PhEDExSiteInfoSource(SiteInfoSource):
     """SiteInfoSource for PhEDEx. Also use CMS Site Status Board for additional information."""
 
-    def __init__(self, config):
+    def __init__(self, config = None):
+        config = Configuration(config)
+
         SiteInfoSource.__init__(self, config)
 
         self._phedex = PhEDEx(config.get('phedex', None))
         self._ssb = SiteStatusBoard(config.get('ssb', None))
 
-        self.ssb_cache_lifetime = config.ssb_cache_lifetime
+        self.ssb_cache_lifetime = config.get('ssb_cache_lifetime', 3600)
         self._ssb_cache_timestamp = 0
         self._caching_lock = threading.Lock()
 

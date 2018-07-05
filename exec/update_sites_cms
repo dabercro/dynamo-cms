@@ -4,7 +4,7 @@ import sys
 from argparse import ArgumentParser
 
 parser = ArgumentParser(description = 'Update site status.')
-parser.add_argument('--config', '-c', metavar = 'CONFIG', dest = 'config', required = True, help = 'Configuration JSON.')
+parser.add_argument('--config', '-c', metavar = 'CONFIG', dest = 'config', help = 'Configuration JSON.')
 
 args = parser.parse_args()
 sys.argv = []
@@ -17,18 +17,21 @@ config = Configuration(args.config)
 ## Set up logging (write to stdout)
 from dynamo.core.executable import make_standard_logger
 
-LOG = make_standard_logger(config.log_level)
+LOG = make_standard_logger(config.get('log_level', 'info'))
 
 ## Load and initialize sources
 from dynamo.core.executable import inventory
-import dynamo.source.impl as sources
+from dynamo.source.impl.phedexsiteinfo import PhEDExSiteInfoSource
+
+if 'sites' not in config:
+    config.sites = Configuration(config = Configuration())
 
 if 'include_sites' in config:
     config.sites.config.include = config.include_sites
 if 'exclude_sites' in config:
     config.sites.config.exclude = config.exclude_sites
 
-site_source = sources.PhEDExSiteInfoSource(config.sites.config)
+site_source = PhEDExSiteInfoSource(config.sites.config)
 
 ## Start the update
 from dynamo.utils.parallel import Map
