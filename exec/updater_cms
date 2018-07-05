@@ -88,6 +88,7 @@ from dynamo.operation.impl.phedexcopy import PhEDExCopyInterface
 from dynamo.operation.impl.phedexdeletion import PhEDExDeletionInterface
 from dynamo.operation.history import DeletionHistoryDatabase, CopyHistoryDatabase
 
+rlfsm = RLFSM()
 phedex_copy = PhEDExCopyInterface()
 phedex_deletion = PhEDExDeletionInterface()
 copy_history = CopyHistoryDatabase()
