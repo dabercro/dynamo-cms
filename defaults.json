@@ -1,4 +1,32 @@
 {
+  "operation.copy:CopyInterface": {
+    "fullauth": {
+      "module": "fodphedexcopy:FODPhEDExReserveCopyInterface",
+      "config": {
+        "reserve_db_params": {
+          "db": "dynamo"
+        }
+      }
+    },
+    "readonly": {
+      "module": "dummycopy:DummyCopyInterface",
+      "config": {}
+    }
+  },
+  "operation.deletion:DeletionInterface": {
+    "fullauth": {
+      "module": "fodphedexdeletion:FODPhEDExReserveDeletionInterface",
+      "config": {
+        "reserve_db_params": {
+          "db": "dynamo"
+        }
+      }
+    },
+    "readonly": {
+      "module": "dummydeletion:DummyDeletionInterface",
+      "config": {}
+    }
+  },
   "utils.interface.phedex:PhEDEx": {
     "all": {
       "url_base": "https://cmsweb.cern.ch/phedex/datasvc/json/prod",
