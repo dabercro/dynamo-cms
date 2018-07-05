@@ -51,10 +51,10 @@ LOG.info('Starting inventory update.')
 
 ## Load and initialize sources
 
-from dynamo.source.groupinfo import GroupInfoSource
-from dynamo.source.siteinfo import SiteInfoSource
-from dynamo.source.datasetinfo import DatasetInfoSource
-from dynamo.source.replicainfo import ReplicaInfoSource
+from dynamo.source.impl.phedexgroupinfo import PhEDExGroupInfoSource
+from dynamo.source.impl.phedexsiteinfo import PhEDExSiteInfoSource
+from dynamo.source.impl.phedexdatasetinfo import PhEDExDatasetInfoSource
+from dynamo.source.impl.phedexreplicainfo import PhEDExReplicaInfoSource
 
 if 'sites' not in config:
     config.sites = Configuration()
@@ -76,10 +76,10 @@ if 'exclude_datasets' in config:
     config.datasets.exclude = config.exclude_datasets
     config.replicas.exclude_datasets = config.exclude_datasets
 
-group_source = GroupInfoSource.get_instance(None, config.get('groups', None))
-site_source = SiteInfoSource.get_instance(None, config.sites)
-dataset_source = DatasetInfoSource.get_instance(None, config.datasets)
-replica_source = ReplicaInfoSource.get_instance(None, config.replicas)
+group_source = PhEDExGroupInfoSource(config.get('groups', None))
+site_source = PhEDExSiteInfoSource(config.sites)
+dataset_source = PhEDExDatasetInfoSource(config.datasets)
+replica_source = PhEDExReplicaInfoSource(config.replicas)
 
 ## Tools for file-level operations
 
