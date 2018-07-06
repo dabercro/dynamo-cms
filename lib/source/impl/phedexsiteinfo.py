@@ -9,6 +9,7 @@ from dynamo.utils.interface.ssb import SiteStatusBoard
 
 LOG = logging.getLogger(__name__)
 
+# not used for now
 def lfn_to_pfn(lfn, protocol, xml):
     if type(xml) is str:
         a = ET.parse(xml)
@@ -69,28 +70,43 @@ class PhEDExSiteInfoSource(SiteInfoSource):
 
         LOG.info('get_site(%s)  Fetching information of %s from PhEDEx', name, name)
 
+        # General site info
         result = self._phedex.make_request('nodes', ['node=' + name])
         if len(result) == 0:
             return None
 
         entry = result[0]
 
-        dummy_lfn = '/store/data/Run2010A/AlCaP0/ALCARECO/v1/000/135/809/48D7671F-B063-DF11-BDB5-0030487CD17C.root'
-        pfn = lfn_to_pfn(dummy_lfn, 'srmv2', xmlfile)
-        backend = pfn.replace(dummy_lfn, '')
+        host = entry['se']
+        storage_type = Site.storage_type_val(entry['kind'])
 
-        return Site(entry['name'], host = entry['se'], storage_type = Site.storage_type_val(entry['kind']), backend = backend)
+        # LFN->PFN mapping
+        dummy_lfn = '/store/data/Run2010A/dummyfile.root'
+        result = self._phedex.make_request('lfn2pfn', ['node=' + name, 'protocol=srmv2', 'lfn=' + dummy_lfn])
+
+        backend = result[0]['pfn'].replace(dummy_lfn, '')
+
+        return Site(name, host = host, storage_type = storage_type, backend = backend)
 
     def get_site_list(self): #override
         LOG.info('get_site_list  Fetching the list of nodes from PhEDEx')
 
         site_list = []
 
+        dummy_lfn = '/store/data/Run2010A/dummyfile.root'
+        pfn_maps = self._phedex.make_request('lfn2pfn', ['node=T*', 'protocol=srmv2', 'lfn=' + dummy_lfn])
+        backend_map = dict((m['node'], m['pfn'].replace(dummy_lfn, '')) for m in pfn_maps if m['pfn'] is not None)
+
         for entry in self._phedex.make_request('nodes'):
             if not self.check_allowed_site(entry['name']):
                 continue
 
-            site_list.append(Site(entry['name'], host = entry['se'], storage_type = Site.storage_type_val(entry['kind']), backend = entry['technology']))
+            try:
+                backend = backend_map[entry['name']]
+            except KeyError:
+                backend = ''
+
+            site_list.append(Site(entry['name'], host = entry['se'], storage_type = Site.storage_type_val(entry['kind']), backend = backend))
 
         return site_list
 
