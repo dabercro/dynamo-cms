@@ -624,6 +624,8 @@ from dynamo.utils.interface.mysql import MySQL
 
 LOG.info('Collecting in-house transfers and deletions.')
 
+rlfsm.convert_pre_subscriptions(inventory)
+
 reservations_db = MySQL(config.reservations_db_params)
 
 subscriptions = rlfsm.get_subscriptions(inventory, status = ['done'])
