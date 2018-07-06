@@ -1,0 +1,84 @@
+{
+  "dynamosrv": {
+    "passwd": "",
+    "hosts": ["localhost", "%"],
+    "grants": [
+      ["ALL PRIVILEGES", "dynamo%"]
+    ]
+  },
+  "dynamo": {
+    "passwd": "",
+    "hosts": ["localhost", "%"],
+    "grants": [
+      ["SELECT", "dynamo"],
+      ["ALL PRIVILEGES", "dynamo\\_tmp"],
+      ["SELECT, LOCK TABLES", "dynamoregister"],
+      ["SELECT, INSERT, UPDATE, DELETE, LOCK TABLES, CREATE TEMPORARY TABLES, DROP", "dynamohistory"],
+      ["SELECT, INSERT, UPDATE, DELETE, LOCK TABLES, CREATE TEMPORARY TABLES, CREATE, DROP", "dynamohistory\\_cache"],
+      ["INSERT, UPDATE", "dynamo", "system"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "phedex_transfer_reservations"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "phedex_deletion_reservations"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "dataset_requests"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "dataset_accesses"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "activity_lock"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "copy_requests"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "copy_request_items"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "copy_request_sites"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "active_copies"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "deletion_requests"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "deletion_request_items"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "deletion_request_sites"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "active_deletions"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "detox_locks"],
+      ["INSERT, UPDATE, DELETE, ALTER", "dynamoregister", "data_injections"],
+      ["SELECT", "dynamoserver", "users"],
+      ["SELECT", "dynamoserver", "roles"],
+      ["SELECT", "dynamoserver", "user_authorizations"]
+    ]
+  },
+  "dynamoread": {
+    "passwd": "",
+    "hosts": ["localhost", "%"],
+    "grants": [
+      ["SELECT", "dynamo"],
+      ["ALL PRIVILEGES", "dynamo\\_tmp"],
+      ["SELECT, LOCK TABLES", "dynamoregister"],
+      ["SELECT, LOCK TABLES", "dynamohistory"],
+      ["SELECT, INSERT, UPDATE, DELETE, LOCK TABLES, CREATE, DROP", "dynamohistory\\_cache"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "activity_lock"],
+      ["SELECT", "dynamoserver", "users"],
+      ["SELECT", "dynamoserver", "roles"],
+      ["SELECT", "dynamoserver", "user_authorizations"]
+    ]
+  },
+  "dynamofod": {
+    "passwd": "",
+    "hosts": ["localhost", "%"],
+    "grants": [
+      ["SELECT, LOCK TABLES", "dynamo"],
+      ["ALL PRIVILEGES", "dynamo\\_tmp"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "transfer_batches"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "transfer_tasks"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "failed_transfers"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "deletion_batches"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "deletion_tasks"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "file_subscriptions"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "file_pre_subscriptions"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "directory_cleaning_tasks"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "fts_servers"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "fts_error_messages"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "fts_transfer_batches"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "fts_transfer_files"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "fts_deletion_batches"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "fts_deletion_files"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "standalone_transfer_tasks"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "standalone_deletion_tasks"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "standalone_transfer_batches"],
+      ["INSERT, UPDATE, DELETE", "dynamo", "standalone_deletion_batches"],
+      ["SELECT, LOCK TABLES", "dynamohistory"],
+      ["INSERT, UPDATE", "dynamohistory", "files"],
+      ["INSERT, UPDATE", "dynamohistory", "file_transfers"],
+      ["INSERT, UPDATE", "dynamohistory", "file_deletions"]
+    ]
+  }
+}

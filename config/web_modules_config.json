@@ -1,0 +1,19 @@
+{
+  "archive_path": "$(DYNAMO_ARCHIVE)",
+  "spool_path": "$(DYNAMO_SPOOL)",
+  "inventory": {
+    "stats": {
+      "default_constraints": {}
+    }
+  },
+  "request": {
+    "copy": {
+      "default_group": "AnalysisOps"
+    }
+  },
+  "detox": {
+    "default_partition": "Physics",
+    "monitored_partitions": ["Physics", "RelVal", "Express"],
+    "cache_db": "dynamohistory_cache"
+  }
+}
