@@ -56,12 +56,13 @@ class RLFSMPhEDExReserveDeletionInterface(DeletionInterface):
                     clone_block_replica.last_update = int(time.time())
                     clones[-1][1].append(clone_block_replica)
 
-        for clone_replica, block_replicas in clones:
-            if block_replicas is None:
-                self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`item`, `site`) VALUES (%s, %s)', clone_replica.dataset.name, clone_replica.site.name)
-            else:
-                for block_replica in block_replicas:
-                    self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`item`, `site`) VALUES (%s, %s)', block_replica.block.full_name(), clone_replica.site.name)
+        if not self._read_only:
+            for clone_replica, block_replicas in clones:
+                if block_replicas is None:
+                    self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`item`, `site`) VALUES (%s, %s)', clone_replica.dataset.name, clone_replica.site.name)
+                else:
+                    for block_replica in block_replicas:
+                        self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`item`, `site`) VALUES (%s, %s)', block_replica.block.full_name(), clone_replica.site.name)
 
         return clones
 

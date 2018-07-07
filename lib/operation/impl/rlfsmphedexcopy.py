@@ -55,12 +55,13 @@ class RLFSMPhEDExReserveCopyInterface(CopyInterface):
                 clone_block_replica.last_update = int(time.time())
                 clone_replica.block_replicas.add(clone_block_replica)
 
-        for clone_replica in result:
-            if clone_replica.growing:
-                self.mysql.query('INSERT INTO `phedex_transfer_reservations` (`item`, `site`, `group`) VALUES (%s, %s, %s)', clone_replica.dataset.name, clone_replica.site.name, clone_replica.group.name)
-            else:
-                for block_replica in clone_replica.block_replicas:
-                    self.mysql.query('INSERT INTO `phedex_transfer_reservations` (`item`, `site`, `group`) VALUES (%s, %s, %s)', block_replica.block.full_name(), clone_replica.site.name, block_replica.group.name)
+        if not self._read_only:
+            for clone_replica in result:
+                if clone_replica.growing:
+                    self.mysql.query('INSERT INTO `phedex_transfer_reservations` (`item`, `site`, `group`) VALUES (%s, %s, %s)', clone_replica.dataset.name, clone_replica.site.name, clone_replica.group.name)
+                else:
+                    for block_replica in clone_replica.block_replicas:
+                        self.mysql.query('INSERT INTO `phedex_transfer_reservations` (`item`, `site`, `group`) VALUES (%s, %s, %s)', block_replica.block.full_name(), clone_replica.site.name, block_replica.group.name)
 
         # no external dependency - everything is a success
         return result
