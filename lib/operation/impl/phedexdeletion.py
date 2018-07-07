@@ -126,7 +126,7 @@ class PhEDExDeletionInterface(DeletionInterface):
     
             # result = [{'id': <id>}] (item 'request_created' of PhEDEx response) if successful
             try:
-                if self.dry_run:
+                if self._read_only:
                     result = [{'id': 0}]
                 else:
                     result = self._phedex.make_request('delete', options, method = POST)
@@ -151,7 +151,7 @@ class PhEDExDeletionInterface(DeletionInterface):
 
                 approved = False
 
-                if self.dry_run:
+                if self._read_only:
                     approved = True
 
                 elif self.auto_approval:
@@ -162,7 +162,7 @@ class PhEDExDeletionInterface(DeletionInterface):
                     else:
                         approved = True
 
-                if not self.dry_run:
+                if not self._read_only:
                     self._history.db.query(history_sql, request_id, operation_id, approved)
 
                 if approved:

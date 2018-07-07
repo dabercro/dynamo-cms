@@ -6,7 +6,7 @@ from dynamo.operation.copy import CopyInterface
 from dynamo.utils.interface.webservice import POST
 from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.history.history import HistoryDatabase
-from dynamo.dataformat import DatasetReplica, Configuration
+from dynamo.dataformat import DatasetReplica, BlockReplica, Configuration
 
 LOG = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class PhEDExCopyInterface(CopyInterface):
             }
 
             try:
-                if self.dry_run:
+                if self._read_only:
                     result = [{'id': 0}]
                 else:
                     result = self._phedex.make_request('subscribe', options, method = POST)
@@ -127,7 +127,7 @@ class PhEDExCopyInterface(CopyInterface):
             else:
                 request_id = int(result[0]['id']) # return value is a string
                 LOG.warning('PhEDEx subscription request id: %d', request_id)
-                if not self.dry_run:
+                if not self._read_only:
                     self._history.db.query(history_sql, request_id, operation_id, True)
 
                 for dataset, blocks in request_catalog.iteritems():

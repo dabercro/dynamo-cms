@@ -94,6 +94,7 @@ phedex_deletion = PhEDExDeletionInterface()
 copy_history = CopyHistoryDatabase()
 deletion_history = DeletionHistoryDatabase()
 
+rlfsm.set_read_only(read_only)
 phedex_copy.set_read_only(read_only)
 phedex_deletion.set_read_only(read_only)
 copy_history.set_read_only(read_only)
