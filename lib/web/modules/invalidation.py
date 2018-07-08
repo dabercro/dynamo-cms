@@ -58,17 +58,19 @@ class InvalidationRequest(WebModule):
                 try:
                     dataset_name, block_name = Block.from_full_name(item)
                 except:
-                    # item is a file
-                    
-                    result = self.dbs.make_request('files', ['logical_file_name=' + item, 'validFileOnly=1'])
-                    if len(result) != 0:
-                        self.registry.db.query(sql, result[0]['logical_file_name'], 'dbs', caller.id)
-                        invalidated = True
-
-                    result = self.phedex.make_request('data', ['file=' + item])
-                    if len(result) != 0:
-                        self.registry.db.query(sql, item, 'tmdb', caller.id)
-                        invalidated = True
+                    lfile = inventory.find_file(item)
+                    if lfile is not None:
+                        # item is a file
+                        
+                        result = self.dbs.make_request('files', ['logical_file_name=' + item, 'validFileOnly=1'])
+                        if len(result) != 0:
+                            self.registry.db.query(sql, result[0]['logical_file_name'], 'dbs', caller.id)
+                            invalidated = True
+    
+                        result = self.phedex.make_request('data', ['file=' + item])
+                        if len(result) != 0:
+                            self.registry.db.query(sql, item, 'tmdb', caller.id)
+                            invalidated = True
 
                 else:
                     # item is a block
@@ -92,6 +94,7 @@ class InvalidationCancel(WebModule):
     def __init__(self, config):
         WebModule.__init__(self, config)
 
+        self.dbs = DBS()
         self.registry = RegistryDatabase()
         self.authorized_users = list(config.file_invalidation.authorized_users)
 
@@ -111,10 +114,29 @@ class InvalidationCancel(WebModule):
 
         cancelled_items = []
 
+        sql = 'DELETE FROM `invalidations` WHERE `item` = %s AND `user_id` = %s'
+
         for item in items:
-            deleted = self.registry.db.query('DELETE FROM `invalidations` WHERE `item` = %s AND `user_id` = %s', item, caller.id)
+            deleted = self.registry.db.query(sql, item, caller.id)
             if deleted != 0:
                 cancelled_items.append({'item': item})
+
+            if item in inventory.datasets:
+                # item is a dataset
+    
+                for entry in self.dbs.make_request('files', ['dataset=' + item, 'validFileOnly=1']):
+                    self.registry.db.query(sql, entry['logical_file_name'], caller.id)
+
+            else:
+                try:
+                    dataset_name, block_name = Block.from_full_name(item)
+                except:
+                    pass
+                else:
+                    # item is a block
+
+                    for entry in self.dbs.make_request('files', ['block_name=' + item, 'validFileOnly=1']):
+                        self.registry.db.query(sql, entry['logical_file_name'], caller.id)
 
         return cancelled_items
 
@@ -123,3 +145,5 @@ export_data = {
     'invalidate': InvalidationRequest,
     'clear': InvalidationCancel
 }
+
+export_web = {}

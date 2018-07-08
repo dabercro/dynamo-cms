@@ -2,7 +2,8 @@
   "dynamo": {
     "grants": [
       ["INSERT, UPDATE, DELETE", "dynamo", "phedex_transfer_reservations"],
-      ["INSERT, UPDATE, DELETE", "dynamo", "phedex_deletion_reservations"]
+      ["INSERT, UPDATE, DELETE", "dynamo", "phedex_deletion_reservations"],
+      ["INSERT, UPDATE, DELETE", "dynamoregister", "invalidations"]
     ]
   }
 }
