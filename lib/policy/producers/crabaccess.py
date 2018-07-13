@@ -7,7 +7,7 @@ import MySQLdb
 
 from dynamo.utils.interface.popdb import PopDB
 from dynamo.utils.interface.mysql import MySQL
-from dynamo.dataformat import Site
+from dynamo.dataformat import Configuration, Site
 from dynamo.utils.parallel import Map
 
 LOG = logging.getLogger(__name__)
@@ -22,8 +22,28 @@ class CRABAccessHistory(object):
 
     produces = ['global_usage_rank', 'num_access', 'last_access']
 
-    def __init__(self, config):
+    _default_config = None
+
+    @staticmethod
+    def set_default(config):
+        CRABAccessHistory._default_config = Configuration(config)
+
+    def __init__(self, config = None):
+        if config is None:
+            config = CRABAccessHistory._default_config
+
         self._store = MySQL(config.store)
+        self._popdb = PopDB(config.get('popdb', None))
+
+        self.max_back_query = config.get('max_back_query', 7)
+
+        self.included_sites = list(config.get('included_sites', []))
+        self.excluded_sites = list(config.get('excluded_sites', []))
+
+        self.set_read_only(config.get('read_only', False))
+
+    def set_read_only(self, value = True):
+        self._read_only = value
 
     def load(self, inventory):
         records = self._get_stored_records(inventory)
@@ -118,49 +138,38 @@ class CRABAccessHistory(object):
             dataset.attr['num_access'] = num_access
             dataset.attr['last_access'] = max(last_access, dataset.last_update)
 
-    @staticmethod
-    def update(config, inventory, read_only = False):
-        popdb = PopDB(config.get('popdb', None))
-        store = MySQL(config.store)
-
+    def update(self, inventory):
         try:
             try:
-                last_update = store.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `system`')[0]
+                last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `system`')[0]
             except IndexError:
                 last_update = time.time() - 3600 * 24 # just go back by a day
-                if not read_only:
-                    store.query('INSERT INTO `system` VALUES ()')
+                if self._read_only:
+                    self._store.query('INSERT INTO `system` VALUES ()')
 
-            if not read_only:
-                store.query('UPDATE `system` SET `dataset_accesses_last_update` = NOW()', retries = 0, silent = True)
+            if not self._read_only:
+                self._store.query('UPDATE `system` SET `dataset_accesses_last_update` = NOW()', retries = 0, silent = True)
 
         except MySQLdb.OperationalError:
             # We have a read-only config
-            read_only = True
+            self._read_only = True
             LOG.info('Cannot write to DB. Switching to read_only.')
 
-        start_time = max(last_update, (time.time() - 3600 * 24 * config.max_back_query))
+        start_time = max(last_update, (time.time() - 3600 * 24 * self.max_back_query))
         start_date = datetime.date(*time.gmtime(start_time)[:3])
 
-        included_sites = list(config.included_sites)
-        excluded_sites = list(config.excluded_sites)
+        source_records = self._get_source_records(inventory, start_date)
 
-        source_records = CRABAccessHistory._get_source_records(popdb, inventory, included_sites, excluded_sites, start_date)
-
-        if not read_only:
-            CRABAccessHistory._save_records(source_records, store)
+        if not self._read_only:
+            self._save_records(source_records)
             # remove old entries
-            store.query('DELETE FROM `dataset_accesses` WHERE `date` < DATE_SUB(NOW(), INTERVAL 2 YEAR)')
-            store.query('UPDATE `system` SET `dataset_accesses_last_update` = NOW()')
+            self._store.query('DELETE FROM `dataset_accesses` WHERE `date` < DATE_SUB(NOW(), INTERVAL 2 YEAR)')
+            self._store.query('UPDATE `system` SET `dataset_accesses_last_update` = NOW()')
 
-    @staticmethod
-    def _get_source_records(popdb, inventory, included_sites, excluded_sites, start_date):
+    def _get_source_records(self, inventory, start_date):
         """
         Get the replica access data from PopDB from start_date to today.
-        @param popdb          PopDB interface
         @param inventory      DynamoInventory
-        @param included_sites List of site name patterns to include
-        @param excluded_sites List of site name patterns to exclude
         @param start_date     Query start date (datetime.datetime)
         @return  {replica: {date: (number of access, total cpu time)}}
         """
@@ -180,23 +189,23 @@ class CRABAccessHistory(object):
         arg_pool = []
         for site in inventory.sites.itervalues():
             matched = False
-            for pattern in included_sites:
+            for pattern in self.included_sites:
                 if fnmatch.fnmatch(site.name, pattern):
                     matched = True
                     break
-            for pattern in excluded_sites:
+            for pattern in self.excluded_sites:
                 if fnmatch.fnmatch(site.name, pattern):
                     matched = False
                     break
 
             if matched:
                 for date in days_to_query:
-                    arg_pool.append((popdb, site, inventory, date))
+                    arg_pool.append((site, inventory, date))
 
         mapper = Map()
         mapper.logger = LOG
 
-        records = mapper.execute(CRABAccessHistory._get_site_record, arg_pool)
+        records = mapper.execute(self._get_site_record, arg_pool)
 
         for site_record in records:
             for replica, date, naccess, cputime in site_record:
@@ -207,11 +216,9 @@ class CRABAccessHistory(object):
 
         return all_accesses
 
-    @staticmethod
-    def _get_site_record(popdb, site, inventory, date):
+    def _get_site_record(self, site, inventory, date):
         """
         Get the replica access data on a single site from PopDB.
-        @param popdb      PopDB interface
         @param site       Site
         @param inventory  Inventory
         @param date       datetime.date
@@ -232,7 +239,7 @@ class CRABAccessHistory(object):
             service = 'popularity/DSStatInTimeWindow/'
 
         datestr = date.strftime('%Y-%m-%d')
-        result = popdb.make_request(service, ['sitename=' + sitename, 'tstart=' + datestr, 'tstop=' + datestr])
+        result = self._popdb.make_request(service, ['sitename=' + sitename, 'tstart=' + datestr, 'tstop=' + datestr])
 
         records = []
         
@@ -250,18 +257,16 @@ class CRABAccessHistory(object):
 
         return records
 
-    @staticmethod
-    def _save_records(records, store):
+    def _save_records(self, records):
         """
         Save the newly fetched access records.
         @param records  {replica: {date: (number of access, total cpu time)}}
-        @param store    Write-allowed MySQL interface
         """
 
         site_id_map = {}
-        store.make_map('sites', set(r.site for r in records.iterkeys()), site_id_map, None)
+        self._store.make_map('sites', set(r.site for r in records.iterkeys()), site_id_map, None)
         dataset_id_map = {}
-        store.make_map('datasets', set(r.dataset for r in records.iterkeys()), dataset_id_map, None)
+        self._store.make_map('datasets', set(r.dataset for r in records.iterkeys()), dataset_id_map, None)
 
         fields = ('dataset_id', 'site_id', 'date', 'access_type', 'num_accesses', 'cputime')
 
@@ -273,4 +278,4 @@ class CRABAccessHistory(object):
             for date, (num_accesses, cputime) in entries.iteritems():
                 data.append((dataset_id, site_id, date.strftime('%Y-%m-%d'), 'local', num_accesses, cputime))
 
-        store.insert_many('dataset_accesses', fields, None, data, do_update = True)
+        self._store.insert_many('dataset_accesses', fields, None, data, do_update = True)

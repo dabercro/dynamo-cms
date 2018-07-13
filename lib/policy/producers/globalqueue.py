@@ -19,11 +19,26 @@ class GlobalQueueRequestHistory(object):
 
     produces = ['request_weight']
 
-    def __init__(self, config):
+    _default_config = None
+
+    @staticmethod
+    def set_default(config):
+        GlobalQueueRequestHistory._default_config = Configuration(config)
+
+    def __init__(self, config = None):
+        if config is None:
+            config = GlobalQueueRequestHistory._default_config
+
         self._store = MySQL(config.store)
+        self._htcondor = HTCondor(config.get('htcondor', None))
 
         # Weight computation halflife constant (given in days in config)
-        self.weight_halflife = config.weight_halflife * 3600. * 24.
+        self.weight_halflife = config.get('weight_halflife', 4) * 3600. * 24.
+
+        self.set_read_only(config.get('read_only', False))
+
+    def set_read_only(self, value = True):
+        self._read_only = value
 
     def load(self, inventory):
         records = self._get_stored_records(inventory)
@@ -105,40 +120,34 @@ class GlobalQueueRequestHistory(object):
             
             dataset.attr['request_weight'] = weight
 
-    @staticmethod
-    def update(config, inventory, read_only = False):
-        htcondor = HTCondor(config.htcondor)
-        store = MySQL(config.store)
-
+    def update(self, inventory):
         try:
             try:
-                last_update = store.query('SELECT UNIX_TIMESTAMP(`dataset_requests_last_update`) FROM `system`', retries = 1)[0]
+                last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_requests_last_update`) FROM `system`', retries = 1)[0]
             except IndexError:
                 last_update = time.time() - 3600 * 24 # just go back by a day
-                if not read_only:
-                    store.query('INSERT INTO `system` VALUES ()')
+                if not self._read_only:
+                    self._store.query('INSERT INTO `system` VALUES ()')
 
-            if not read_only:
-                store.query('UPDATE `system` SET `dataset_requests_last_update` = NOW()', retries = 0, silent = True)
+            if not self._read_only:
+                self._store.query('UPDATE `system` SET `dataset_requests_last_update` = NOW()', retries = 0, silent = True)
 
         except MySQLdb.OperationalError:
             # We have a read-only config
-            read_only = True
-            LOG.info('Cannot write to DB. Switching to read_only.')
+            self._read_only = True
+            LOG.info('Cannot write to DB. Switching to self._read_only.')
 
-        source_records = GlobalQueueRequestHistory._get_source_records(htcondor, inventory, last_update)
+        source_records = self._get_source_records(inventory, last_update)
 
-        if not read_only:
-            GlobalQueueRequestHistory._save_records(source_records, store)
+        if not self._read_only:
+            self._save_records(source_records)
             # remove old entries
-            store.query('DELETE FROM `dataset_requests` WHERE `queue_time` < DATE_SUB(NOW(), INTERVAL 1 YEAR)')
-            store.query('UPDATE `system` SET `dataset_requests_last_update` = NOW()')
+            self._store.query('DELETE FROM `dataset_requests` WHERE `queue_time` < DATE_SUB(NOW(), INTERVAL 1 YEAR)')
+            self._store.query('UPDATE `system` SET `dataset_requests_last_update` = NOW()')
 
-    @staticmethod
-    def _get_source_records(htcondor, inventory, last_update):
+    def _get_source_records(self, inventory, last_update):
         """
         Get the dataset request data from Global Queue schedd.
-        @param htcondor     HTCondor interface
         @param inventory    DynamoInventory
         @param last_update  UNIX timestamp
         @return {dataset: {jobid: GlobalQueueJob}}
@@ -148,7 +157,7 @@ class GlobalQueueRequestHistory(object):
 
         attributes = ['DESIRED_CMSDataset', 'GlobalJobId', 'QDate', 'CompletionDate', 'DAG_NodesTotal', 'DAG_NodesDone', 'DAG_NodesFailed', 'DAG_NodesQueued']
         
-        job_ads = htcondor.find_jobs(constraint = constraint, attributes = attributes)
+        job_ads = self._htcondor.find_jobs(constraint = constraint, attributes = attributes)
 
         job_ads.sort(key = lambda a: a['DESIRED_CMSDataset'])
 
@@ -187,16 +196,14 @@ class GlobalQueueRequestHistory(object):
 
         return all_requests
 
-    @staticmethod
-    def _save_records(records, store):
+    def _save_records(self, records):
         """
         Save the newly fetched request records.
         @param records  {dataset: {jobid: GlobalQueueJob}}
-        @param store    Write-allowed MySQL interface
         """
 
         dataset_id_map = {}
-        store.make_map('datasets', records.iterkeys(), dataset_id_map, None)
+        self._store.make_map('datasets', records.iterkeys(), dataset_id_map, None)
 
         fields = ('id', 'dataset_id', 'queue_time', 'completion_time', 'nodes_total', 'nodes_done', 'nodes_failed', 'nodes_queued')
 
@@ -216,5 +223,5 @@ class GlobalQueueRequestHistory(object):
                     nodes_queued
                 ))
 
-        store.insert_many('dataset_requests', fields, None, data, do_update = True)
+        self._store.insert_many('dataset_requests', fields, None, data, do_update = True)
 

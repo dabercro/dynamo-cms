@@ -4,7 +4,7 @@ import sys
 from argparse import ArgumentParser
 
 parser = ArgumentParser(description = 'Update dataset popularity.')
-parser.add_argument('--config', '-c', metavar = 'CONFIG', dest = 'config', required = True, help = 'Configuration JSON.')
+parser.add_argument('--config', '-c', metavar = 'CONFIG', dest = 'config', help = 'Configuration JSON.')
 parser.add_argument('--crabaccess', '-A', action = 'store_true', dest = 'crabaccess', help = 'Update CRAB access.')
 parser.add_argument('--globalqueue', '-G', action = 'store_true', dest = 'globalqueue', help = 'Update GlobalQueue request.')
 
@@ -24,7 +24,7 @@ config = Configuration(args.config)
 ## Set up logging (write to stdout)
 from dynamo.core.executable import authorized, make_standard_logger
 
-LOG = make_standard_logger(config.log_level)
+LOG = make_standard_logger(config.get('log_level', 'info'))
 
 ## Load the inventory
 from dynamo.core.executable import inventory
@@ -35,8 +35,13 @@ if args.crabaccess:
     LOG.info('Updating CRABAccessHistory.')
     
     from dynamo.policy.producers.crabaccess import CRABAccessHistory
+
+    access = CRABAccessHistory(config.get('crabaccess', None))
+
+    if not authorized:
+        access.set_read_only()
     
-    CRABAccessHistory.update(config.crabaccess, inventory, read_only = not authorized)
+    access.update(inventory)
     
     LOG.info('CRABAccessHistory update completed.')
 
@@ -46,7 +51,12 @@ if args.globalqueue:
     LOG.info('Updating GlobalQueueRequestHistory.')
     
     from dynamo.policy.producers.globalqueue import GlobalQueueRequestHistory
+
+    request = GlobalQueueRequestHistory(config.get('globalqueue', None))
+
+    if not authorized:
+        request.set_read_only()
     
-    GlobalQueueRequestHistory.update(config.globalqueue, inventory, read_only = not authorized)
+    request.update(inventory)
     
     LOG.info('GlobalQueueRequestHistory update completed.')

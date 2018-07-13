@@ -86,5 +86,19 @@
       "module": "phedexuserinfo:PhEDExUserInfoSource",
       "config": {}
     }
+  },
+  "policy.producers.crabaccess:CRABAccessHistory": {
+    "all": {
+      "store": {"db": "dynamo"}
+    }
+  },
+  "policy.producers.globalqueue:GlobalQueueRequestHistory": {
+    "all": {
+      "store": {"db": "dynamo"},
+      "htcondor": {
+        "collector": "cmsgwms-collector-global.cern.ch:9620",
+        "schedd_constraint": "CMSGWMS_Type =?= \"crabschedd\""
+      }
+    }
   }
 }
