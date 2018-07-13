@@ -144,7 +144,7 @@ class CRABAccessHistory(object):
                 last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `system`')[0]
             except IndexError:
                 last_update = time.time() - 3600 * 24 # just go back by a day
-                if self._read_only:
+                if not self._read_only:
                     self._store.query('INSERT INTO `system` VALUES ()')
 
             if not self._read_only:

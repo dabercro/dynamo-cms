@@ -4,6 +4,7 @@ import logging
 import math
 import MySQLdb
 
+from dynamo.dataformat import Configuration
 from dynamo.utils.interface.htc import HTCondor
 from dynamo.utils.interface.mysql import MySQL
 
