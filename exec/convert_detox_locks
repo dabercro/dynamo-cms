@@ -27,10 +27,9 @@ from dynamo.core.executable import authorized, make_standard_logger
 LOG = make_standard_logger(config.log_level)
 
 ## Start conversion
-from dynamo.policy.producers import WebReplicaLock
+from dynamo.policy.producers.weblock import WebReplicaLock
 from dynamo.core.executable import inventory, authorizer
 from dynamo.registry.registry import RegistryDatabase
-from dynamo.registry.applock import Applock
 
 LOG.info('Translating web-based replica locks into DB-based locks.')
 
@@ -44,20 +43,22 @@ unlocked_datasets = set()
 registry = RegistryDatabase()
 
 if authorized:
-    user = ''
-    while user != config.applock_user:
+    while True:
         registry.lock_app('detox', config.applock_user)
         user, service, lock_time, note, depth = registry.get_app_lock('detox')
+        if user == config.applock_user:
+            break
+
         LOG.info('Applock is held by %s:%s. Waiting 60 seconds to retry.', user, service)
         time.sleep(60)
 
 try:
-    registry.db.lock_tables(write = ['detox_locks'])
+    registry.db.lock_tables(write = ['detox_locks'], read = ['user_services'])
 
     # we process one source at a time, because each source registers mysql locks as a different user
     for name, source_conf in config.sources.items():
         try:
-            service_id = registry.db.query('SELECT `id` FROM `services` WHERE `name` = %s', source_conf.service)[0]
+            service_id = registry.db.query('SELECT `id` FROM `user_services` WHERE `name` = %s', source_conf.service)[0]
         except IndexError:
             raise RuntimeError('Unknown service %s' % source_conf.service)
 
@@ -121,7 +122,7 @@ finally:
         registry.unlock_app('detox', config.applock_user)
 
 # update block replicas that got unlocked
-from dynamo.source.impl import PhEDExReplicaInfoSource
+from dynamo.source.impl.phedexreplicainfo import PhEDExReplicaInfoSource
 
 replica_source = PhEDExReplicaInfoSource(config.replica_source)
 
