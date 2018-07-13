@@ -1,6 +1,8 @@
 import time
 import logging
 import threading
+import fnmatch
+import re
 
 from dynamo.dataformat import Configuration, Site
 from dynamo.source.siteinfo import SiteInfoSource
@@ -8,42 +10,6 @@ from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.interface.ssb import SiteStatusBoard
 
 LOG = logging.getLogger(__name__)
-
-# not used for now
-def lfn_to_pfn(lfn, protocol, xml):
-    if type(xml) is str:
-        a = ET.parse(xml)
-        root = a.getroot()
-    else:
-        root = xml
-
-    for lfn_tag in root.findall('lfn-to-pfn'):
-        path_match = lfn_tag.get('path-match')
-        protocol_tag = lfn_tag.get('protocol')
-        match = re.match(path_match, lfn)
-        chain_protocol = lfn_tag.get('chain')
-        result = lfn_tag.get('result')
-
-        if match and protocol_tag == protocol:
-            if chain_protocol is not None: 
-                replacement = lfn_to_pfn(lfn, chain_protocol, root)
-                pfn = result.replace(r'$1', replacement)
-            else:
-                pfn = result
-
-                idx = 1
-                while True:
-                    try:
-                        replacement = match.group(idx)
-                        pfn = pfn.replace(r'$%d' % (idx), replacement)
-                    except IndexError:
-                        break
-
-                    idx += 1
-
-            return pfn
-
-    return lfn
 
 class PhEDExSiteInfoSource(SiteInfoSource):
     """SiteInfoSource for PhEDEx. Also use CMS Site Status Board for additional information."""
@@ -80,33 +46,18 @@ class PhEDExSiteInfoSource(SiteInfoSource):
         host = entry['se']
         storage_type = Site.storage_type_val(entry['kind'])
 
-        # LFN->PFN mapping
-        dummy_lfn = '/store/data/Run2010A/dummyfile.root'
-        result = self._phedex.make_request('lfn2pfn', ['node=' + name, 'protocol=srmv2', 'lfn=' + dummy_lfn])
-
-        backend = result[0]['pfn'].replace(dummy_lfn, '')
-
-        return Site(name, host = host, storage_type = storage_type, backend = backend)
+        return Site(name, host = host, storage_type = storage_type)
 
     def get_site_list(self): #override
         LOG.info('get_site_list  Fetching the list of nodes from PhEDEx')
 
         site_list = []
 
-        dummy_lfn = '/store/data/Run2010A/dummyfile.root'
-        pfn_maps = self._phedex.make_request('lfn2pfn', ['node=T*', 'protocol=srmv2', 'lfn=' + dummy_lfn])
-        backend_map = dict((m['node'], m['pfn'].replace(dummy_lfn, '')) for m in pfn_maps if m['pfn'] is not None)
-
         for entry in self._phedex.make_request('nodes'):
             if not self.check_allowed_site(entry['name']):
                 continue
 
-            try:
-                backend = backend_map[entry['name']]
-            except KeyError:
-                backend = ''
-
-            site_list.append(Site(entry['name'], host = entry['se'], storage_type = Site.storage_type_val(entry['kind']), backend = backend))
+            site_list.append(Site(entry['name'], host = entry['se'], storage_type = Site.storage_type_val(entry['kind'])))
 
         return site_list
 
@@ -150,8 +101,6 @@ class PhEDExSiteInfoSource(SiteInfoSource):
             return Site.STAT_READY
 
     def get_filename_mapping(self, site_name): #override
-        mappings = {}
-
         tfc = self._phedex.make_request('tfc', ['node=' + site_name])['array']
 
         conversions = {}
@@ -201,9 +150,15 @@ class PhEDExSiteInfoSource(SiteInfoSource):
 
                 return chains
 
+        mappings = {}
+
         for protocol, rules in conversions.items():
             if protocol == 'direct':
                 continue
+
+            if protocol == 'srmv2':
+                # for historic reasons PhEDEx calls gfal2 srmv2
+                protocol = 'gfal2'
 
             mapping = []
             
@@ -215,3 +170,5 @@ class PhEDExSiteInfoSource(SiteInfoSource):
                 mapping.extend(chains)
 
             mappings[protocol] = mapping
+
+        return mappings
