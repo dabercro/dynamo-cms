@@ -148,3 +148,70 @@ class PhEDExSiteInfoSource(SiteInfoSource):
             return Site.STAT_MORGUE
         else:
             return Site.STAT_READY
+
+    def get_filename_mapping(self, site_name): #override
+        mappings = {}
+
+        tfc = self._phedex.make_request('tfc', ['node=' + site_name])['array']
+
+        conversions = {}
+        for elem in tfc:
+            if elem['element_name'] != 'lfn-to-pfn':
+                continue
+
+            if 'destination-match' in elem and not fnmatch.fnmatch(site_name, elem['destination-match']):
+                continue
+
+            if 'chain' in elem:
+                chain = elem['chain']
+            else:
+                chain = None
+
+            result = elem['result']
+            i = 1
+            while '$' in result:
+                result = result.replace('$%d' % i, '{%d}' % (i - 1))
+                i += 1
+                if i == 100:
+                    # can't be possibly right
+                    break
+
+            if elem['protocol'] in conversions:
+                conversions[elem['protocol']].append((elem['path-match'], result, chain))
+            else:
+                conversions[elem['protocol']] = [(elem['path-match'], result, chain)]
+
+        def make_mapping_chains(rule):
+            if rule[2] is None:
+                return [[(rule[0], rule[1])]]
+            else:
+                if rule[2] not in conversions:
+                    return None
+
+                chains = []
+                for chained_rule in conversions[rule[2]]:
+                    mapped_chains = make_mapping_chains(chained_rule)
+                    if mapped_chains is None:
+                        continue
+
+                    chains.extend(mapped_chains)
+
+                for chain in chains:
+                    chain.append((rule[0], rule[1]))
+
+                return chains
+
+        for protocol, rules in conversions.items():
+            if protocol == 'direct':
+                continue
+
+            mapping = []
+            
+            for rule in rules:
+                chains = make_mapping_chains(rule)
+                if chains is None:
+                    continue
+
+                mapping.extend(chains)
+
+            mappings[protocol] = mapping
