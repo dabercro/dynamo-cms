@@ -32,7 +32,7 @@ sys.argv = []
 
 from dynamo.dataformat import Configuration, Block, ObjectError
 from dynamo.utils.parallel import Map
-from dynamo.core.executable import read_only, make_standard_logger
+from dynamo.core.executable import authorized, make_standard_logger
 
 ## Configuration
 
@@ -65,7 +65,7 @@ phedex = PhEDEx()
 
 rrd_dir = config.rrd_path_base + '/track_phedex'
 
-if not read_only:
+if authorized:
     try:
         os.makedirs(rrd_dir)
     except OSError:
@@ -188,7 +188,7 @@ for sitename, request_ids in records.iteritems():
     # Create a directory for the site
     site_rrd_dir = rrd_dir + '/' + sitename
 
-    if not read_only:
+    if authorized:
         try:
             os.mkdir(site_rrd_dir)
         except OSError:
@@ -255,7 +255,7 @@ for sitename, request_ids in records.iteritems():
             if total != 0 and copied != total:
                 incomplete_replicas_rrd.add(rrd_file)
 
-                if not read_only and not os.path.exists(rrd_file):
+                if authorized and not os.path.exists(rrd_file):
                     # RRD does not exist yet
                     create_rrd(rrd_file)
 
@@ -270,7 +270,7 @@ for sitename, request_ids in records.iteritems():
                 except:
                     lasttime = 0
 
-                if not read_only and timestamp != lasttime:
+                if authorized and timestamp != lasttime:
                     try:
                         rrdtool.update(rrd_file, '%d:%d:%d' % (timestamp, copied, total))
                     except:
@@ -292,7 +292,7 @@ for sitename, request_ids in records.iteritems():
                     'stuck': is_stuck
                 })
 
-            elif not read_only:
+            elif authorized:
                 try:
                     os.unlink(rrd_file)
                 except OSError:
@@ -300,7 +300,7 @@ for sitename, request_ids in records.iteritems():
 
     dataset_details.sort(key = lambda x: x['total'])
 
-    if not read_only:
+    if authorized:
         with open("%s/filelist.txt" % site_rrd_dir, "w") as csvfilelist:
             fieldnames = ["id", "name", "copied", "total", "stuck"]
     
@@ -312,7 +312,7 @@ for sitename, request_ids in records.iteritems():
 
 ## Create overview files
 
-if not read_only:
+if authorized:
     with open("%s/overview.txt" % rrd_dir, "w") as overview:
         fieldnames = ["sitename", "ongoing", "total", "copied", "total_stuck", "copied_stuck"]
     
@@ -344,7 +344,7 @@ total_rrdfile = {
     'disk': rrd_dir + '/total_disk.rrd'
 }
 
-if not read_only:
+if authorized:
     for rrdfile in total_rrdfile.itervalues():
         if not os.path.exists(rrdfile):
             create_rrd(rrdfile)

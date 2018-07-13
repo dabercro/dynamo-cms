@@ -22,11 +22,11 @@ from dynamo.dataformat import Configuration, Dataset, Block, ObjectError
 config = Configuration(args.config)
 
 ## Set up logging (write to stdout)
-from dynamo.core.executable import read_only, make_standard_logger
+from dynamo.core.executable import authorized, make_standard_logger
 
 LOG = make_standard_logger(config.log_level)
 
-if not read_only:
+if authorized:
     ## Check if another process is running
     process_exists = False
     
@@ -75,7 +75,7 @@ comment = 'Auto-produced by dynamo'
 # will query PhEDEx later for those
 unlocked_datasets = set()
 
-if not read_only:
+if authorized:
     lock = MySQLApplicationLockInterface(config.applock, authorizer)
     lock.lock()
 
@@ -127,7 +127,7 @@ try:
         for item, site in loaded_locks - existing_locks:
             sql = 'INSERT INTO `detox_locks` (`item`, `sites`, `lock_date`, `expiration_date`, `user_id`, `role_id`, `comment`)'
             sql += ' VALUES (%s, %s, NOW(), %s, %s, %s, \'Auto-produced by dynamo\')'
-            if not read_only:
+            if authorized:
                 mysql.query(sql, item, site, expiry, user_id, role_id)
             num_locked += 1
 
@@ -135,7 +135,7 @@ try:
 
         # unlock excess
         for item, site in existing_locks - loaded_locks:
-            if not read_only:
+            if authorized:
                 mysql.query('UPDATE `detox_locks` SET `unlock_date` = NOW() WHERE `id` = %s', existing_lock_ids[(item, site)])
             num_unlocked += 1
 
@@ -148,12 +148,12 @@ try:
     
         LOG.info('Locked: %d, Unlocked: %d', num_locked, num_unlocked)
 
-    if not read_only:
+    if authorized:
         # Intentionally removing the file only when everything succeeds
         os.unlink(config.process_lock)
 
 finally:
-    if not read_only:
+    if authorized:
         lock.unlock()
 
 mysql.query('UNLOCK TABLES')

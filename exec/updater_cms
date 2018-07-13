@@ -26,7 +26,7 @@ from dynamo.dataformat.configuration import Configuration
 config = Configuration(args.config)
 
 ## Set up logging (write to stdout & stderr)
-from dynamo.core.executable import make_standard_logger, read_only, inventory
+from dynamo.core.executable import make_standard_logger, authorized, inventory
 
 LOG = make_standard_logger(config.log_level)
 
@@ -94,11 +94,12 @@ phedex_deletion = PhEDExDeletionInterface()
 copy_history = CopyHistoryDatabase()
 deletion_history = DeletionHistoryDatabase()
 
-rlfsm.set_read_only(read_only)
-phedex_copy.set_read_only(read_only)
-phedex_deletion.set_read_only(read_only)
-copy_history.set_read_only(read_only)
-deletion_history.set_read_only(read_only)
+if not authorized:
+    rlfsm.set_read_only()
+    phedex_copy.set_read_only()
+    phedex_deletion.set_read_only()
+    copy_history.set_read_only()
+    deletion_history.set_read_only()
 
 ## Start the update
 # 1. Refresh groups
@@ -601,7 +602,7 @@ if check_replicas:
 
 # 7. Save the execution state
 
-if not read_only and args.mode is not None and os.path.exists(config.updater_state_file):
+if authorized and args.mode is not None and os.path.exists(config.updater_state_file):
     # Regardless of update mode, clear the updated datasets from the table
     state_db = sqlite3.connect(config.updater_state_file)
     cursor = state_db.cursor()
@@ -710,7 +711,7 @@ for rid, item_name, site_name, group_name in reservations_db.query('SELECT `id`,
         group = inventory.groups[group_name]
     except KeyError:
         # shouldn't happen
-        if not read_only:
+        if authorized:
             reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
         continue
 
@@ -737,7 +738,7 @@ for rid, item_name, site_name, group_name in reservations_db.query('SELECT `id`,
         block = dataset.find_block(block_name)
         if block is None:
             # shouldn't happen
-            if not read_only:
+            if authorized:
                 reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
             continue
 
@@ -776,14 +777,14 @@ for rid, item_name, site_name in reservations_db.query('SELECT `id`, `item`, `si
         site = inventory.sites[site_name]
     except KeyError:
         # shouldn't happen
-        if not read_only:
+        if authorized:
             reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
         continue
 
     replica = site.find_dataset_replica(dataset)
     if replica is None:
         # already gone
-        if not read_only:
+        if authorized:
             reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
         continue
 
@@ -806,7 +807,7 @@ for rid, item_name, site_name in reservations_db.query('SELECT `id`, `item`, `si
         block = dataset.find_block(block_name)
         if block is None:
             # shouldn't happen
-            if not read_only:
+            if authorized:
                 reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
             continue
 
@@ -887,7 +888,7 @@ for site, replica_list in by_site.iteritems():
     deletion_history.update_entry(history_record)
 
 # Remove completed reservations
-if not read_only:
+if authorized:
     reservations_db.delete_many('phedex_transfer_reservations', 'id', done_transfer_reservation_ids)
     reservations_db.delete_many('phedex_deletion_reservations', 'id', done_deletion_reservation_ids)
 
