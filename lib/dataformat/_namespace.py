@@ -64,6 +64,9 @@ def customize_block(Block):
     hex_chars = '[0-9a-fA-F]'
     Block.name_pattern = re.compile('{h}{{8}}-{h}{{4}}-{h}{{4}}-{h}{{4}}-{h}{{12}}'.format(h = hex_chars))
 
+def customize_file(File):
+    File.checksum_algorithms = ('crc32', 'adler32')
+
 def customize_blockreplica(BlockReplica):
     BlockReplica._use_file_ids = True
 

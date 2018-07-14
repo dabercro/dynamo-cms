@@ -37,28 +37,23 @@ from dynamo.core.executable import authorized, make_standard_logger
 ## Configuration
 
 config = Configuration(args.config)
-dealer_config = Configuration(config.dealer_config).dealer
 
 ## Logger
 
-LOG = make_standard_logger(config.log_level)
+LOG = make_standard_logger(config.get('log_level', 'info'))
 
 ## Parallelizer
 
-parallelizer = Map(config.parallel)
+parallelizer = Map(config.get('parallel', Configuration()))
 
 ## Data source
 
-from dynamo.history.history import TransactionHistoryInterface
+from dynamo.dealer.history import DealerHistoryBase
 from dynamo.operation.copy import CopyInterface
 from dynamo.utils.interface.phedex import PhEDEx
 
-if 'history' in config:
-    history = TransactionHistoryInterface.get_instance(config.history.module, config.history.config)
-else:
-    history = TransactionHistoryInterface.get_instance()
-
-copy = CopyInterface.get_instance(dealer_config.copy_op.module, dealer_config.copy_op.config)
+history = DealerHistoryBase(config.get('history', None))
+copy = CopyInterface.get_instance()
 phedex = PhEDEx()
 
 ## Paths 

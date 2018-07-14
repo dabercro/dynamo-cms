@@ -272,10 +272,17 @@ class PhEDExDatasetInfoSource(DatasetInfoSource):
         return block
 
     def _create_file(self, file_entry, block):
+        for cksum in file_entry['checksum'].split(','):
+            if cksum.startswith('adler32'):
+                adler32 = cksum[8:]
+            elif cksum.startswith('cksum'):
+                crc32 = int(cksum[6:])
+
         lfile = File(
             file_entry['lfn'],
             block = block,
-            size = file_entry['size']
+            size = file_entry['size'],
+            checksum = (crc32, adler32)
         )
 
         return lfile
