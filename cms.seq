@@ -33,14 +33,14 @@ WAIT 1209600
 
 [SEQUENCE detox_snapshot]
 WAIT 600
-| <update_popularity> --config /etc/dynamo/popularity_update_config.json --crabaccess
+| <update_popularity> --config /etc/dynamo/updater_config.json --crabaccess
 | <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/Physics.txt --snapshot-run
 | <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/RelVal.txt --snapshot-run
 | <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/DataOps.txt --snapshot-run
 | <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/Unsubscribed.txt --snapshot-run
 
 [SEQUENCE detox]
-| <update_popularity> --config /etc/dynamo/popularity_update_config.json --crabaccess
+| <update_popularity> --config /etc/dynamo/updater_config.json --crabaccess
 & <convert_locks> --config /etc/dynamo/convert_detox_locks_config.json
 & <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/Physics.txt
 & <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/RelVal.txt
@@ -50,7 +50,7 @@ WAIT 600
 WAIT 14400
 
 [SEQUENCE dealer]
-| <update_popularity> --config /etc/dynamo/popularity_update_config.json --globalqueue
+| <update_popularity> --config /etc/dynamo/updater_config.json --globalqueue
 ^ <dealer> --config /etc/dynamo/dealer_config.json
 ^ <dealer> --config /etc/dynamo/dealer_relval_config.json
 ^ <dealer> --config /etc/dynamo/dealer_alldisk_config.json

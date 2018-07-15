@@ -1,48 +1,20 @@
 {
   "detox": {
-    "deletion_per_iteration": 0.01,
-    "detox_history": {
-      "history_db": "dynamohistory",
-      "cache_db": "dynamohistory_cache",
-      "snapshots_spool_dir": "$(DYNAMO_SPOOL)/detox_snapshots",
-      "snapshots_archive_dir": "$(DYNAMO_ARCHIVE)/detox_snapshots"
-    },
     "attrs": {
-      "MySQLReplicaLock": {
-        "users": [],
-        "db_params": {
-          "db": "dynamoregister"
-        }
-      },
-      "CRABAccessHistory": {
-        "store": {
-          "db": "dynamo"
-        }
-      },
+      "MySQLReplicaLock": null,
+      "CRABAccessHistory": null,
       "ProtectedSiteTagger": {
         "sites": []
-      },
+      }
       "DatasetRelease": {},
       "EnforcedProtectionTagger": {
         "enforcer": {
-          "policy": "$(DYNAMO_POLICIES)/common/enforcer_rules_physics.json"
+          "policy": "/usr/share/dynamo-policies/common/enforcer_rules_physics.json"
         }
       },
       "BlockReplicaRelativeAge": {},
       "TapeCopyRequested": {},
-      "UnhandledCopyExists": {
-        "registry": {
-          "db": "dynamoregister"
-        }
-      }
-    }
-  },
-  "applock": {
-    "user": "dynamo",
-    "role": "dynamo",
-    "app": "detox",
-    "db_params": {
-      "db": "dynamoregister"
+      "UnhandledCopyExists": null
     }
   },
   "log_level": "info"

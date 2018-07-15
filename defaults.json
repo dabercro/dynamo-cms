@@ -89,7 +89,8 @@
   },
   "policy.producers.crabaccess:CRABAccessHistory": {
     "all": {
-      "store": {"db": "dynamo"}
+      "store": {"db": "dynamo"},
+      "max_back_query": 7
     }
   },
   "policy.producers.globalqueue:GlobalQueueRequestHistory": {
