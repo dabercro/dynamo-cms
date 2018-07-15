@@ -61,7 +61,7 @@
     "attrs": {
       "GlobalQueueRequestHistory": null
     },
-    "target_sites": ["T1_*_Disk", "T2_*"],
+    "target_sites": ["T0_*", "T1_*", "T2_*"],
     "target_site_occupancy": 0.93,
     "max_site_pending_fraction": 0.03,
     "max_total_cycle_volume": 200

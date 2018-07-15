@@ -101,6 +101,12 @@ if not authorized:
     copy_history.set_read_only()
     deletion_history.set_read_only()
 
+## Reservations DB (keeping track of in-house operations we did)
+
+from dynamo.utils.interface.mysql import MySQL
+
+reservations_db = MySQL(config.reservations_db_params)
+
 ## Start the update
 # 1. Refresh groups
 # 2. Get the list of block replicas and dataset names to update
@@ -544,11 +550,14 @@ if check_replicas:
     ## 6. Loop over deleted replicas
     
     for replica in deleted_replicas:
+        ## HERE
+
+
         replica_str = str(replica)
     
         LOG.debug('Deleting %s', replica_str)
     
-        # 6.1. pick up replicas of known groups only
+        # 6.1. Pick up replicas of known groups only
     
         if replica.group.name not in inventory.groups:
             LOG.debug('%s is owned by %s, which is not a tracked group.', replica_str, replica.group.name)
@@ -622,13 +631,7 @@ if authorized and args.mode is not None and os.path.exists(config.updater_state_
 
 # 8. Deal with Dynamo-run transfers and deletions
 
-from dynamo.utils.interface.mysql import MySQL
-
 LOG.info('Collecting in-house transfers and deletions.')
-
-rlfsm.convert_pre_subscriptions(inventory)
-
-reservations_db = MySQL(config.reservations_db_params)
 
 subscriptions = rlfsm.get_subscriptions(inventory, status = ['done'])
 
