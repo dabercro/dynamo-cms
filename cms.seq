@@ -2,11 +2,11 @@
 <dealer> = $(DYNAMO_BASE)/exec/dealer_cms
 <updater> = $(DYNAMO_BASE)/exec/updater_cms
 <update_sites> = $(DYNAMO_BASE)/exec/update_sites_cms
-<update_popularity> = $(DYNAMO_BASE)/exec/update_popularity_cms
-<convert_locks> = $(DYNAMO_BASE)/exec/convert_detox_locks
-<track_transfers> = $(DYNAMO_BASE)/exec/track_transfers
-<track_phedex> = $(DYNAMO_BASE)/exec/track_phedex
-<track_enforcer> = $(DYNAMO_BASE)/exec/track_enforcer
+{update_popularity} = $(DYNAMO_BASE)/exec/update_popularity_cms
+{convert_locks} = $(DYNAMO_BASE)/exec/convert_detox_locks
+{track_transfers} = $(DYNAMO_BASE)/exec/track_transfers
+{track_phedex} = $(DYNAMO_BASE)/exec/track_phedex
+{track_enforcer} = $(DYNAMO_BASE)/exec/track_enforcer
 <track_requests> = $(DYNAMO_BASE)/exec/track_requests
 {siteinfo} = $(DYNAMO_BASE)/exec/siteinfo
 
@@ -33,24 +33,25 @@ WAIT 1209600
 
 [SEQUENCE detox_snapshot]
 WAIT 600
-| <update_popularity> --config /etc/dynamo/updater_config.json --crabaccess
-| <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/Physics.txt --snapshot-run
-| <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/RelVal.txt --snapshot-run
-| <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/DataOps.txt --snapshot-run
-| <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/Unsubscribed.txt --snapshot-run
+| {update_popularity} --config /etc/dynamo/updater_config.json --crabaccess
+| {detox} --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/Physics.txt --snapshot-run
+| {detox} --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/RelVal.txt --snapshot-run
+| {detox} --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/DataOps.txt --snapshot-run
+| {detox} --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/Unsubscribed.txt --snapshot-run
 
 [SEQUENCE detox]
-| <update_popularity> --config /etc/dynamo/updater_config.json --crabaccess
-& <convert_locks> --config /etc/dynamo/convert_detox_locks_config.json
-& <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/Physics.txt
-& <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/RelVal.txt
-& <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/DataOps.txt --test-run
-& <detox> --config /etc/dynamo/detox_config.json --policy $(DYNAMO_POLICIES)/detox/caf-alca.txt --test-run
+| {update_popularity} --config /etc/dynamo/updater_config.json --crabaccess
+& {convert_locks} --config /etc/dynamo/convert_detox_locks_config.json
+& <detox> --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/Physics.txt
+& <detox> --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/RelVal.txt
+& <detox> --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/Express.txt
+& {detox} --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/DataOps.txt --test-run
+& {detox} --config /etc/dynamo/detox_config.json --policy /usr/share/dynamo-policies/detox/caf-alca.txt --test-run
 & {siteinfo} --config /etc/dynamo/siteinfo_config.json --out /home/cmsprod/public_html/IntelROCCS/Detox
 WAIT 14400
 
 [SEQUENCE dealer]
-| <update_popularity> --config /etc/dynamo/updater_config.json --globalqueue
+| {update_popularity} --config /etc/dynamo/updater_config.json --globalqueue
 ^ <dealer> --config /etc/dynamo/dealer_config.json
 ^ <dealer> --config /etc/dynamo/dealer_relval_config.json
 ^ <dealer> --config /etc/dynamo/dealer_alldisk_config.json
@@ -58,10 +59,10 @@ WAIT 1800
 
 [SEQUENCE dealermon]
 WAIT 900
-| <track_transfers> --config /etc/dynamo/dealermon_config.json
-| <track_phedex> --config /etc/dynamo/dealermon_config.json
-| <track_enforcer> --config /etc/dynamo/dealermon_config.json
+| {track_transfers} --config /etc/dynamo/dealermon_config.json
+| {track_phedex} --config /etc/dynamo/dealermon_config.json
+| {track_enforcer} --config /etc/dynamo/dealermon_config.json
 
 [SEQUENCE queuemanager]
-| <track_requests>
+| <track_requests> --config /etc/dynamo/track_requests_config.json
 WAIT 120
