@@ -1,7 +1,6 @@
 import time
 import logging
 import threading
-import fnmatch
 import re
 
 from dynamo.dataformat import Configuration, Site
@@ -108,7 +107,7 @@ class PhEDExSiteInfoSource(SiteInfoSource):
             if elem['element_name'] != 'lfn-to-pfn':
                 continue
 
-            if 'destination-match' in elem and not fnmatch.fnmatch(site_name, elem['destination-match']):
+            if 'destination-match' in elem and re.match(elem['destination-match'], site_name) is None:
                 continue
 
             if 'chain' in elem:
