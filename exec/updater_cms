@@ -103,9 +103,9 @@ if not authorized:
 reservations_db = MySQL(config.reservations_db_params)
 
 # Pre-fetch the list of reserved transfers before we deal with deletions
-transfer_reservations = {} # {(dataset, site): (set(blocks), group, reservation id)}
+transfer_reservations = {} # {(dataset, site): (set(blocks), group, reservation id, operation id)}
 
-for rid, item_name, site_name, group_name in reservations_db.query('SELECT `id`, `item`, `site`, `group` FROM `phedex_transfer_reservations`'):
+for rid, opid, item_name, site_name, group_name in reservations_db.query('SELECT `id`, `operation_id`, `item`, `site`, `group` FROM `phedex_transfer_reservations`'):
     try:
         dataset_name, block_name = Block.from_full_name(item_name)
     except ObjectError:
@@ -134,7 +134,7 @@ for rid, item_name, site_name, group_name in reservations_db.query('SELECT `id`,
 
         blocks = set([block])
 
-    transfer_reservations[(dataset, site)] = (blocks, group, rid)
+    transfer_reservations[(dataset, site)] = (blocks, group, rid, opid)
 
 ## Start the update
 # 1. Refresh groups
@@ -715,16 +715,16 @@ for key, file_ids in deleted_files.iteritems():
             completed_desubscriptions.pop(key)
 
 # Completed_subscriptions and completed_desubscriptions now contain (block, site) => [subscription ids] of (de)subscriptions
-# that may be ready to be reported to PhEDEx
+# that are ready to be reported to PhEDEx
 
 done_subscription_ids = []
 
 # First deal with copies
 
 done_transfer_reservation_ids = []
-copy_replica_list = {}
+copy_replica_list = {} # {operation id: [datasetreplica]}
 
-for (dataset, site), (blocks, group, rid) in transfer_reservations.iteritems():
+for (dataset, site), (blocks, group, rid, opid) in transfer_reservations.iteritems():
     dataset_done_ids = []
     for block in blocks:
         try:
@@ -737,21 +737,24 @@ for (dataset, site), (blocks, group, rid) in transfer_reservations.iteritems():
         done_subscription_ids.extend(dataset_done_ids)
         done_transfer_reservation_ids.append(rid)
 
+        if opid not in copy_replica_list:
+            copy_replica_list[opid] = []
+
+        try:
+            replica = next(r for r in copy_replica_list[opid] if r.dataset is dataset)
+        except StopIteration:
+            replica = DatasetReplica(dataset, site, growing = False)
+            copy_replica_list[opid].append(replica)
+
         # blockreplicas below are created with size = 0 because PhEDEx must ultimately confirm the replica and report back
 
         if blocks == dataset.blocks:
             # dataset replica reserved
-            replica = DatasetReplica(dataset, site, growing = True, group = group)
-            copy_replica_list[(dataset, site)] = replica
+            replica.growing = True
+            replica.group = group
 
-        else:
-            try:
-                replica = copy_replica_list[(dataset, site)]
-            except KeyError:
-                replica = copy_replica_list[(dataset, site)] = DatasetReplica(dataset, site, growing = False)
-            else:
-                if replica.growing:
-                    continue
+        elif replica.growing:
+            continue
 
         for block in blocks:
             replica.block_replicas.add(BlockReplica(block, site, group, size = 0))
@@ -759,9 +762,9 @@ for (dataset, site), (blocks, group, rid) in transfer_reservations.iteritems():
 # Then deal with deletions
 
 done_deletion_reservation_ids = []
-deletion_replica_list = {}
+deletion_replica_list = {} # {operation id: {datasetreplica: [blockreplicas]}}
 
-for rid, item_name, site_name in reservations_db.query('SELECT `id`, `item`, `site` FROM `phedex_deletion_reservations`'):
+for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `operation_id`, `item`, `site` FROM `phedex_deletion_reservations`'):
     try:
         dataset_name, block_name = Block.from_full_name(item_name)
     except ObjectError:
@@ -797,7 +800,10 @@ for rid, item_name, site_name in reservations_db.query('SELECT `id`, `item`, `si
             done_subscription_ids.extend(dataset_done_ids)
             done_deletion_reservation_ids.append(rid)
 
-            deletion_replica_list[replica] = None
+            if opid not in deletion_replica_list:
+                deletion_replica_list[opid] = {}
+
+            deletion_replica_list[opid][replica] = None
 
     else:
         block = dataset.find_block(block_name)
@@ -808,57 +814,36 @@ for rid, item_name, site_name in reservations_db.query('SELECT `id`, `item`, `si
             continue
 
         try:
-            done_subscription_ids.extend(completed_subscriptions[(block, site)])
+            done_subscription_ids.extend(completed_desubscriptions[(block, site)])
         except KeyError:
             continue
 
         done_deletion_reservation_ids.append(rid)
 
+        if opid not in deletion_replica_list:
+            deletion_replica_list[opid] = {}
+
         block_replica = block.find_replica(site)
 
-        if replica not in deletion_replica_list:
-            deletion_replica_list[replica] = [block_replica]
-        elif deletion_replica_list[replica] is not None:
-            deletion_replica_list[replica].append(block_replica)
+        if replica not in deletion_replica_list[opid]:
+            deletion_replica_list[opid][replica] = [block_replica]
+        elif deletion_replica_list[opid][replica] is not None:
+            deletion_replica_list[opid][replica].append(block_replica)
 
 # Execute on PhEDEx
 
-by_site = {}
-for replica in copy_replica_list.itervalues():
-    try:
-        by_site[replica.site].append(replica)
-    except KeyError:
-        by_site[replica.site] = [replica]
-
-for site, replicas in by_site.iteritems():
-    history_record = copy_history.make_entry(site.name)
-
-    scheduled_replicas = phedex_copy.schedule_copies(replicas, history_record.operation_id)
+for opid, replicas in copy_replica_list.iteritems():
+    scheduled_replicas = phedex_copy.schedule_copies(replicas, opid)
 
     for replica in scheduled_replicas:
-        history_record.replicas.append(CopiedReplica(replica.dataset.name, replica.size(physical = False), HistoryRecord.ST_ENROUTE))
-
         inventory.update(replica)
         for block_replica in replica.block_replicas:
             inventory.update(block_replica)
 
-    copy_history.update_entry(history_record)
-
-by_site = {}
-for replica, block_replicas in deletion_replica_list.iteritems():
-    try:
-        by_site[replica.site].append((replica, block_replicas))
-    except KeyError:
-        by_site[replica.site] = [(replica, block_replicas)]
-
-for site, replica_list in by_site.iteritems():
-    history_record = deletion_history.make_entry(site.name)
-
-    scheduled_replicas = phedex_deletion.schedule_copies(replica_list, history_record.operation_id)
+for opid, replicas in deletion_replica_list.iteritems():
+    scheduled_replicas = phedex_deletion.schedule_copies(replicas.items(), opid)
 
     for replica, block_replicas in scheduled_replicas:
-        deleted_size = 0
-
         if block_replicas is None:
             replica.growing = False
             replica.group = Group.null_group
@@ -870,18 +855,10 @@ for site, replica_list in by_site.iteritems():
                 block_replica.group = Group.null_group
                 inventory.register_update(block_replica)
 
-            deleted_size += original_replica.size()
-
         else:
             for block_replica in block_replicas:
                 block_replica.group = Group.null_group
                 inventory.update(block_replica)
-
-                deleted_size += block_replica.size
-
-        history_record.replicas.append(DeletedReplica(replica.dataset.name, deleted_size))
-
-    deletion_history.update_entry(history_record)
 
 # Remove completed reservations
 if authorized:

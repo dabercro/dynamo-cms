@@ -36,7 +36,7 @@ if args.crabaccess:
     
     from dynamo.policy.producers.crabaccess import CRABAccessHistory
 
-    access_config = config.get('crabaccess', Configuration())
+    access_config = config.get('crabaccess', Configuration(CRABAccessHistory._default_config))
     if 'included_sites' in config:
         access_config = config.included_sites
     if 'excluded_sites' in config:

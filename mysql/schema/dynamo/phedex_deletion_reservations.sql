@@ -1,5 +1,6 @@
 CREATE TABLE `phedex_deletion_reservations` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `operation_id` int(10) NOT NULL,
   `item` varchar(512) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
   `site` varchar(32) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
   PRIMARY KEY (`id`),

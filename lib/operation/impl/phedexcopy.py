@@ -152,11 +152,15 @@ class PhEDExCopyInterface(CopyInterface):
     def copy_status(self, history_record, inventory): #override
         request_ids = self._history.db.query('SELECT `id` FROM `phedex_requests` WHERE `operation_type` = \'copy\' AND `operation_id` = %s', history_record.operation_id)
 
+        if len(request_ids) == 0:
+            return {}
+
         return self.transfer_request_status(request_ids)
 
     def transfer_request_status(self, request_ids):
         status = {}
 
+        LOG.debug('Querying PhEDEx transferrequests for requests %s', request_ids)
         requests = self._phedex.make_request('transferrequests', [('request', i) for i in request_ids], method = POST)
         if len(requests) == 0:
             return status

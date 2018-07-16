@@ -15,6 +15,7 @@ class RLFSMPhEDExReserveDeletionInterface(DeletionInterface):
     def __init__(self, config = None):
         DeletionInterface.__init__(self, config)
         self.rlfsm = RLFSM(config.get('rlfsm', None))
+        self.mysql = MySQL(config.reserve_db_params)
 
     def set_read_only(self, value = True): #override
         self._read_only = value
@@ -59,10 +60,10 @@ class RLFSMPhEDExReserveDeletionInterface(DeletionInterface):
         if not self._read_only:
             for clone_replica, block_replicas in clones:
                 if block_replicas is None:
-                    self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`item`, `site`) VALUES (%s, %s)', clone_replica.dataset.name, clone_replica.site.name)
+                    self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`operation_id`, `item`, `site`) VALUES (%s, %s)', clone_replica.dataset.name, clone_replica.site.name)
                 else:
                     for block_replica in block_replicas:
-                        self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`item`, `site`) VALUES (%s, %s)', block_replica.block.full_name(), clone_replica.site.name)
+                        self.mysql.query('INSERT INTO `phedex_deletion_reservations` (`operation_id`, `item`, `site`) VALUES (%s, %s)', block_replica.block.full_name(), clone_replica.site.name)
 
         return clones
 
