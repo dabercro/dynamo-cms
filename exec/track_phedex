@@ -32,7 +32,7 @@ sys.argv = []
 
 from dynamo.dataformat import Configuration, Block, ObjectError
 from dynamo.utils.parallel import Map
-from dynamo.core.executable import authorized, inventory, make_standard_logger
+from dynamo.core.executable import authorized, make_standard_logger
 
 ## Configuration
 
