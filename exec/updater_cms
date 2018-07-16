@@ -20,12 +20,24 @@ args = parser.parse_args()
 sys.argv = []
 
 ## Load the configuration
+from dynamo.core.executable import make_standard_logger, authorized, inventory
+from dynamo.dataformat import Dataset, Block, File, Group, DatasetReplica, BlockReplica, ObjectError
 from dynamo.dataformat.configuration import Configuration
+from dynamo.dataformat.history import DeletedReplica, CopiedReplica, HistoryRecord
+from dynamo.source.impl.phedexgroupinfo import PhEDExGroupInfoSource
+from dynamo.source.impl.phedexsiteinfo import PhEDExSiteInfoSource
+from dynamo.source.impl.phedexdatasetinfo import PhEDExDatasetInfoSource
+from dynamo.source.impl.phedexreplicainfo import PhEDExReplicaInfoSource
+from dynamo.operation.impl.phedexcopy import PhEDExCopyInterface
+from dynamo.operation.impl.phedexdeletion import PhEDExDeletionInterface
+from dynamo.operation.history import DeletionHistoryDatabase, CopyHistoryDatabase
+from dynamo.fileop.rlfsm import RLFSM
+from dynamo.utils.interface.mysql import MySQL
+from dynamo.utils.parallel import Map
 
 config = Configuration(args.config)
 
 ## Set up logging (write to stdout & stderr)
-from dynamo.core.executable import make_standard_logger, authorized, inventory
 
 LOG = make_standard_logger(config.get('log_level', 'info'))
 
@@ -45,11 +57,6 @@ if args.mode and not os.path.exists(config.updater_state_file):
 LOG.info('Starting inventory update.')
 
 ## Load and initialize sources
-
-from dynamo.source.impl.phedexgroupinfo import PhEDExGroupInfoSource
-from dynamo.source.impl.phedexsiteinfo import PhEDExSiteInfoSource
-from dynamo.source.impl.phedexdatasetinfo import PhEDExDatasetInfoSource
-from dynamo.source.impl.phedexreplicainfo import PhEDExReplicaInfoSource
 
 if 'sites' not in config:
     config.sites = Configuration()
@@ -78,11 +85,6 @@ replica_source = PhEDExReplicaInfoSource(config.replicas)
 
 ## Tools for file-level operations
 
-from dynamo.fileop.rlfsm import RLFSM
-from dynamo.operation.impl.phedexcopy import PhEDExCopyInterface
-from dynamo.operation.impl.phedexdeletion import PhEDExDeletionInterface
-from dynamo.operation.history import DeletionHistoryDatabase, CopyHistoryDatabase
-
 rlfsm = RLFSM()
 phedex_copy = PhEDExCopyInterface()
 phedex_deletion = PhEDExDeletionInterface()
@@ -97,8 +99,6 @@ if not authorized:
     deletion_history.set_read_only()
 
 ## Reservations DB (keeping track of in-house operations we did)
-
-from dynamo.utils.interface.mysql import MySQL
 
 reservations_db = MySQL(config.reservations_db_params)
 
@@ -144,10 +144,6 @@ for rid, item_name, site_name, group_name in reservations_db.query('SELECT `id`,
 # 5. Pick up deleted block replicas
 # 6. Loop over deleted replicas
 # 7. Save the execution state
-
-from dynamo.dataformat import Dataset, Block, File, Group, DatasetReplica, BlockReplica, ObjectError
-from dynamo.dataformat.history import DeletedReplica, CopiedReplica, HistoryRecord
-from dynamo.utils.parallel import Map
 
 parallelizer = Map()
 parallelizer.timeout = 7200
