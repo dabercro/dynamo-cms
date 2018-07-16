@@ -149,23 +149,29 @@ class PhEDExCopyInterface(CopyInterface):
 
         return success
 
-    def copy_status(self, request_id): #override
+    def copy_status(self, history_record, inventory): #override
+        request_ids = self._history.db.query('SELECT `id` FROM `phedex_requests` WHERE `operation_type` = \'copy\' AND `operation_id` = %s', history_record.operation_id)
+
+        return self.transfer_request_status(request_ids)
+
+    def transfer_request_status(self, request_ids):
         status = {}
 
-        request = self._phedex.make_request('transferrequests', 'request=%d' % request_id)
-        if len(request) == 0:
+        requests = self._phedex.make_request('transferrequests', [('request', i) for i in request_ids], method = POST)
+        if len(requests) == 0:
             return status
 
-        # A single request can have multiple destinations
-        site_names = [d['name'] for d in request[0]['destinations']['node']]
-
-        dataset_names = []
-        for ds_entry in request[0]['data']['dbs']['dataset']:
-            dataset_names.append(ds_entry['name'])
-
-        block_names = []
-        for ds_entry in request[0]['data']['dbs']['block']:
-            block_names.append(ds_entry['name'])
+        for request in requests:
+            # A single request can have multiple destinations
+            site_names = [d['name'] for d in request['destinations']['node']]
+    
+            dataset_names = []
+            for ds_entry in request['data']['dbs']['dataset']:
+                dataset_names.append(ds_entry['name'])
+    
+            block_names = []
+            for ds_entry in request['data']['dbs']['block']:
+                block_names.append(ds_entry['name'])
 
         if len(dataset_names) != 0:
             # Process dataset-level subscriptions

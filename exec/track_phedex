@@ -32,7 +32,7 @@ sys.argv = []
 
 from dynamo.dataformat import Configuration, Block, ObjectError
 from dynamo.utils.parallel import Map
-from dynamo.core.executable import authorized, make_standard_logger
+from dynamo.core.executable import authorized, inventory, make_standard_logger
 
 ## Configuration
 
@@ -49,12 +49,17 @@ parallelizer = Map(config.get('parallel', Configuration()))
 ## Data source
 
 from dynamo.dealer.history import DealerHistoryBase
-from dynamo.operation.copy import CopyInterface
+from dynamo.operation.impl.phedexcopy import PhEDExCopyInterface
 from dynamo.utils.interface.phedex import PhEDEx
 
 history = DealerHistoryBase(config.get('history', None))
-copy = CopyInterface.get_instance()
+copy = PhEDExCopyInterface()
 phedex = PhEDEx()
+
+if not authorized:
+    # not that we'll do any write operations
+    history.set_read_only()
+    copy.set_read_only()
 
 ## Paths 
 
@@ -147,7 +152,7 @@ ongoing_totals = {} # {site: tallies}
 
 def get_copy_status(request_id):
     try:
-        return request_id, copy.copy_status(request_id)
+        return request_id, copy.transfer_request_status([request_id])
     except:
         LOG.error('Failed to get copy status for request %d', request_id)
         return request_id, {}

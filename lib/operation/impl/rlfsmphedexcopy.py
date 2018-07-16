@@ -65,6 +65,3 @@ class RLFSMPhEDExReserveCopyInterface(CopyInterface):
 
         # no external dependency - everything is a success
         return result
-
-    def copy_status(self, operation_id): #override
-        raise NotImplementedError('copy_status')

@@ -17,6 +17,6 @@
     "cache_db": "dynamohistory_cache"
   },
   "file_invalidation": {
-    "authorized_users": ["vlimant"]
+    "authorized_users": ["dynamo", "vlimant"]
   }
 }
