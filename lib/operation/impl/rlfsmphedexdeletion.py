@@ -2,8 +2,9 @@ import time
 import logging
 
 from dynamo.operation.deletion import DeletionInterface
-from dynamo.dataformat import DatasetReplica, BlockReplica
+from dynamo.dataformat import DatasetReplica, BlockReplica, OperationalError
 from dynamo.fileop.rlfsm import RLFSM
+from dynamo.utils.interface.mysql import MySQL
 
 LOG = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class RLFSMPhEDExReserveDeletionInterface(DeletionInterface):
     def schedule_deletions(self, replica_list, operation_id, comments = ''): #override
         sites = set(r.site for r, b in replica_list)
         if len(sites) != 1:
-            raise OperationalError('schedule_copies should be called with a list of replicas at a single site.')
+            raise OperationalError('schedule_deletions should be called with a list of replicas at a single site.')
 
         site = list(sites)[0]
 

@@ -603,6 +603,12 @@ for replica in deleted_replicas:
         LOG.debug('Unknown dataset %s.', replica.block.dataset.name)
         continue
 
+    # A reserved replica can appear in the deleted_replicas list if we are doing a full update
+    if (dataset, site) in transfer_reservations:
+        replica_reservation = transfer_reservations[(dataset, site)]
+    else:
+        replica_reservation = None
+
     # 6.4. Find the block of the dataset
 
     block_full_name = replica.block.full_name()
@@ -611,6 +617,10 @@ for replica in deleted_replicas:
     if block is None:
         # If not found, create a new block and inject
         LOG.debug('Unknown block %s.', block_full_name)
+        continue
+
+    if replica_reservation is not None and block in replica_reservation[0]:
+        # We don't delete this block rep from the inventory
         continue
 
     # 6.5. Find the dataset replica
