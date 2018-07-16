@@ -22,10 +22,7 @@
         "priority": 2,
         "module": "enforcer:EnforcerHandler",
         "config": {
-          "enforcer": {
-            "max_dataset_size": 50.0,
-            "policy": "/usr/share/dynamo-policies/common/enforcer_rules_physics.json"
-          }
+          "enforcer": "/etc/dynamo/config/enforcer_physics_config.json"
         }
       },
       "popularity": {

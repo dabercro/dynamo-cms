@@ -1,7 +1,6 @@
 {
-  "dealer_config": "/etc/dynamo/dealer_config.json",
   "partitions": ["AnalysisOps", "Physics"],
-  "rrd_path_base": "$(DYNAMO_SPOOL)/dealermon",
+  "rrd_path_base": "/var/spool/dynamo/dealermon",
   "rrd_publish_target": "/var/www/html/dynamo/dynamo/dealermon",
   "rrd_interval": 900,
   "parallel": {
@@ -9,5 +8,6 @@
     "print_progress": true,
     "timeout": 12000
   },
+  "enforcer_config": "/etc/dynamo/enforcer_physics_config.json",
   "log_level": "info"
 }
