@@ -674,9 +674,8 @@ completed_desubscriptions = {}
 deleted_files = {}
 
 for sub in subscriptions:
-    key = (sub.file.block, sub.destination)
-
     if type(sub) is RLFSM.Subscription:
+        key = (sub.file.block, sub.destination)
         try:
             completed_subscriptions[key].append(sub.id)
             transferred_files[key].append(sub.file.id)
@@ -684,6 +683,7 @@ for sub in subscriptions:
             completed_subscriptions[key] = [sub.id]
             transferred_files[key] = [sub.file.id]
     else:
+        key = (sub.file.block, sub.site)
         try:
             completed_desubscriptions[key].append(sub.id)
             deleted_files[key].append(sub.file.id)
@@ -851,7 +851,7 @@ for opid, replicas in copy_replica_list.iteritems():
             inventory.update(block_replica)
 
 for opid, replicas in deletion_replica_list.iteritems():
-    scheduled_replicas = phedex_deletion.schedule_copies(replicas.items(), opid)
+    scheduled_replicas = phedex_deletion.schedule_deletions(replicas.items(), opid)
 
     for replica, block_replicas in scheduled_replicas:
         if block_replicas is None:
