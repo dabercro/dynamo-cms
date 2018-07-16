@@ -22,7 +22,7 @@
         "priority": 2,
         "module": "enforcer:EnforcerHandler",
         "config": {
-          "enforcer": "/etc/dynamo/config/enforcer_physics_config.json"
+          "enforcer": "/etc/dynamo/enforcer_physics_config.json"
         }
       },
       "popularity": {
