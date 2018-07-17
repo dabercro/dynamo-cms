@@ -147,3 +147,6 @@ export_data = {
 }
 
 export_web = {}
+
+# backward compatibility
+registry_alias = 'invalidation'
