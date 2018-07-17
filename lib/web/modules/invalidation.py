@@ -149,4 +149,6 @@ export_data = {
 export_web = {}
 
 # backward compatibility
-registry_alias = 'invalidation'
+registry_alias = {
+    'invalidation': export_data
+}

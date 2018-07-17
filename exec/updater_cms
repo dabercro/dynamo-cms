@@ -209,7 +209,7 @@ if args.mode == 'ReplicaDelta':
     # returns nothing and the empty subscription stays in the inventory, inflating the projected volume at the site.
     # We need to check all empty replicas with PhEDEx.
     def check_empty_replica(replica):
-        return replica, replica_source.replica_exists_at_site(replica.site, replica.dataset):
+        return replica, replica_source.replica_exists_at_site(replica.site, replica.dataset)
 
     empty_replicas = []
     for site in inventory.sites.itervalues():
