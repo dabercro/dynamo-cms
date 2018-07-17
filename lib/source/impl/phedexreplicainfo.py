@@ -6,6 +6,7 @@ from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.parallel import Map
 from dynamo.dataformat import Group, Site, Dataset, Block, File
 from dynamo.dataformat import DatasetReplica, BlockReplica, Configuration
+from dynamo.dataformat import ObjectError
 
 LOG = logging.getLogger(__name__)
 
@@ -145,7 +146,10 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                 pass
             else:
                 for block_entry in block_entries:
-                    _, block_name = Block.from_full_name(block_entry['name'])
+                    try:
+                        _, block_name = Block.from_full_name(block_entry['name'])
+                    except ObjectError:
+                        continue
 
                     try:
                         subscriptions = block_entry['subscription']
@@ -221,8 +225,12 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         LOG.info('get_deleted_replicas(%d)  Fetching the list of replicas from PhEDEx', deleted_since)
 
         result = self._phedex.make_request('deletions', ['complete_since=%d' % deleted_since], timeout = 7200)
+        # result is by dataset
+        block_entries = []
+        for dataset_entry in result:
+            block_entries.extend(dataset_entry['block'])
 
-        return PhEDExReplicaInfoSource.make_block_replicas(result, PhEDExReplicaInfoSource.maker_deletions)
+        return PhEDExReplicaInfoSource.make_block_replicas(block_entries, PhEDExReplicaInfoSource.maker_deletions)
 
     def _combine_file_info(self, block_entry):
         try:
@@ -244,7 +252,7 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         for block_entry in block_entries:
             try:
                 dataset_name, block_name = Block.from_full_name(block_entry['name'])
-            except ValueError: # invalid name
+            except ObjectError: # invalid name
                 continue
 
             if dataset is None or dataset.name != dataset_name:
