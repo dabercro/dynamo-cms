@@ -208,11 +208,8 @@ if args.mode == 'ReplicaDelta':
     # Sometimes when a subscription is made but is removed before any transfer happens, PhEDEx "deletions" call
     # returns nothing and the empty subscription stays in the inventory, inflating the projected volume at the site.
     # We need to check all empty replicas with PhEDEx.
-    lock = threading.Lock()
     def check_empty_replica(replica):
-        if not replica_source.replica_exists_at_site(replica.site, replica.dataset):
-            with lock:
-                deleted_replicas.extend(replica.block_replicas)
+        return replica, replica_source.replica_exists_at_site(replica.site, replica.dataset):
 
     empty_replicas = []
     for site in inventory.sites.itervalues():
@@ -220,7 +217,11 @@ if args.mode == 'ReplicaDelta':
             if replica.size(physical = True) == 0:
                 empty_replicas.append(replica)
 
-    parallelizer.execute(check_empty_replica, empty_replicas)
+    checks = parallelizer.execute(check_empty_replica, empty_replicas, async = True)
+
+    for replica, exists in checks:
+        if not exists:
+            deleted_replicas.extend(replica.block_replicas)
         
     # Names of all the datasets to update
     dataset_names = set(br.block.dataset.name for br in updated_replicas)
@@ -294,15 +295,14 @@ else:
     if args.datasets:
         site_dataset_combos = [(c[0], d) for d in args.datasets for c in site_dataset_combos]
 
-    updated_replicas = []
-
-    lock = threading.Lock()
     def add_updated_replicas(site_name, dataset_name):
-        replicas = replica_source.get_replicas(site = site_name, dataset = dataset_name)
-        with lock:
-            updated_replicas.extend(replicas)
+        return replica_source.get_replicas(site = site_name, dataset = dataset_name)
 
-    parallelizer.execute(add_updated_replicas, site_dataset_combos)
+    replica_lists = parallelizer.execute(add_updated_replicas, site_dataset_combos, async = True)
+
+    updated_replicas = []
+    for replica_list in replica_lists:
+        updated_replicas.extend(replica_list)
 
     dataset_names = set(br.block.dataset.name for br in updated_replicas)
 
