@@ -1,5 +1,7 @@
 <?php
 
+$rrd_dir = '/var/spool/dynamo/dealermon/track_enforcer';
+
 function single_rrd_to_array($rrd,$rrdpath){
 
   global $rrdcolumns;
@@ -61,7 +63,7 @@ date_default_timezone_set('America/New_York');
 // Fetching first ruleset as default for dropdown
 $counter = 0;
 $var = "";
-foreach (glob(__DIR__ . '/monitoring_enforcer/*') as $filename) {
+foreach (glob($rrd_dir . '/*') as $filename) {
   if ($counter > 0){
     break;
   }
@@ -74,7 +76,7 @@ $html_replace = '<form method="GET">';
 $html_replace = $html_replace .'<select name="rule" onchange="this.form.submit()">';
 $html_replace = $html_replace . "<option value='Choose policy'>" . "Choose policy" . "</option>";
 
-foreach (glob(__DIR__ . '/monitoring_enforcer/*.rrd') as $filename) {
+foreach (glob($rrd_dir . '/*.rrd') as $filename) {
   if ($var === $filename){
     $html_replace = $html_replace . "<option selected='selected'>" . basename(str_replace(".rrd","",$filename)) . "</option>";
   }
@@ -160,7 +162,7 @@ foreach($considered_sites as &$value){
 if ( (isset($_REQUEST['getStatus']) && $_REQUEST['getStatus'])){
 
   $status_array = array();
-  $directory = 'monitoring_enforcer/';
+  $directory = $rrd_dir;
 
   if (! is_dir($directory)) {
     exit('Invalid diretory path');
@@ -176,7 +178,7 @@ if ( (isset($_REQUEST['getStatus']) && $_REQUEST['getStatus'])){
     }
     else if ($var != $file) continue;
 
-    if (($handle = fopen("monitoring_enforcer/" . $file, "r")) !== FALSE) {
+    if (($handle = fopen($directory . "/" . $file, "r")) !== FALSE) {
 
       $search      = str_replace('.rrd','',$file);
       $line_number = false;
@@ -193,7 +195,7 @@ if ( (isset($_REQUEST['getStatus']) && $_REQUEST['getStatus'])){
 
       $siteinfo = array('rule' => str_replace('.rrd','',$file)."_".$line_number, 'data' => array());
             
-      $rrd_info = single_rrd_to_array($file,__DIR__ . "/monitoring_enforcer/");
+      $rrd_info = single_rrd_to_array($file, $rrd_dir . "/");
       $siteinfo['data'][] = array('date' => $rrd_info[0], 'missing' => $rrd_info[1], 'enroute' => $rrd_info[2], 'there' => $rrd_info[3], 'sites' => $considered_sites, 'backends' => $considered_backends, 'lat' => $considered_lat, 'long' => $considered_long);
       $status_array[] = $siteinfo;
 	

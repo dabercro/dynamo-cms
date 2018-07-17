@@ -1,6 +1,9 @@
 <?php
 
-include_once('/var/www/cgi-bin/dynamo/common/db_conf.php');
+include_once('db_conf.php');
+
+$track_transfers = '/var/spool/dynamo/dealermon/track_transfers'
+$track_phedex = '/var/spool/dynamo/dealermon/track_phedex'
 
 //Function to get an array of total aggregate requested data size ordered by their calendar date of request
 if ( (isset($_REQUEST['getHistory']) && $_REQUEST['getHistory']) ) {
@@ -49,32 +52,32 @@ if ((isset($_REQUEST['getServices']) && $_REQUEST['getServices']) ) {
 // Dynamo is default
 $service_id = 1;
 $rrdfile = array('total.rrd');
-$rrdpaths = array('./monitoring/');
-$overviewpaths = array('monitoring/overview.txt');
-$summarypaths = array('./monitoring');
+$rrdpaths = array($track_transfers);
+$overviewpaths = array($track_transfers . '/overview.txt');
+$summarypaths = array($track_transfers);
 
 if ((isset($_REQUEST['serviceId']) && $_REQUEST['serviceId'] == 2)){
   $service_id = 2;
   $rrdfile = array('total_disk.rrd');
-  $rrdpaths = array('./monitoring_phedex/');
-  $overviewpaths = array("monitoring_phedex/overview.txt");
-  $summarypaths[0] = './monitoring_phedex';
+  $rrdpaths = array($track_phedex);
+  $overviewpaths = array($track_phedex . "/overview.txt");
+  $summarypaths[0] = $track_phedex;
 }
 
 if ((isset($_REQUEST['serviceId']) && $_REQUEST['serviceId'] == 3)){
   $service_id = 3;
   $rrdfile = array('total.rrd','total_disk.rrd');
-  $rrdpaths = array('./monitoring_phedex/');
-  $overviewpaths = array('monitoring/overview.txt','monitoring_phedex/overview.txt');
-  $summarypaths[] = './monitoring_phedex';
+  $rrdpaths = array($track_phedex);
+  $overviewpaths = array($track_transfers . '/overview.txt', $track_phedex . '/overview.txt');
+  $summarypaths[] = $track_phedex;
 }
 
 if ((isset($_REQUEST['serviceId']) && $_REQUEST['serviceId'] == 4)){
   $service_id = 4;
   $rrdfile = array('total_tape.rrd');
-  $rrdpaths = array('./monitoring_phedex/');
-  $overviewpaths = array("monitoring_phedex/overview.txt");
-  $summarypaths[0] = './monitoring_phedex';
+  $rrdpaths = array($track_phedex);
+  $overviewpaths = array($track_phedex . "/overview.txt");
+  $summarypaths[0] = $track_phedex;
 }
 
 

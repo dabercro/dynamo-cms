@@ -1,7 +1,6 @@
 {
   "partitions": ["AnalysisOps", "Physics"],
   "rrd_path_base": "/var/spool/dynamo/dealermon",
-  "rrd_publish_target": "/var/www/html/dynamo/dynamo/dealermon",
   "rrd_interval": 900,
   "copy": {
     "module": "phedexcopy:PhEDExCopyInterface",
