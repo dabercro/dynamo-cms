@@ -125,7 +125,7 @@ function initPage(serviceId) {
     
     var ajaxInput_services = {
 
-        'url': 'http://dynamo.mit.edu/dynamo/dealermon/main.php',
+        'url': document.baseURI,
         'data': {'getServices': 1},
         'success': function (data) { 
 	    setServices(data);
@@ -137,7 +137,7 @@ function initPage(serviceId) {
     $.ajax(ajaxInput_services);
 
     var ajaxInput_ongoings = {
-        'url': 'http://dynamo.mit.edu/dynamo/dealermon/main.php',
+        'url': document.baseURI,
         'data': {'getJson': 1, 'serviceId': serviceId},
         'success': function (data) { 
 	    drawSiteOverview(data,serviceId);
@@ -149,7 +149,7 @@ function initPage(serviceId) {
     $.ajax(ajaxInput_ongoings);
 
     var ajaxInput_summary = {
-        'url': 'http://dynamo.mit.edu/dynamo/dealermon/main.php',
+        'url': document.baseURI,
         'data': {'getSummary': 1, 'serviceId' : serviceId},
         'success': function (data) { 
  
@@ -477,7 +477,7 @@ function drawSiteOverview(data,serviceId) {
 	    problematic = true;
 	}
 
-	url = 'http://dynamo.mit.edu/dynamo/dealermon/sites.php?site='+sitename + '&serviceId=' +serviceId;
+	url = document.baseURI.substring(0, document.baseURI.indexOf('main.php')) + 'sites.php?site='+sitename + '&serviceId=' +serviceId;
 	
 	addT2data(sitename, total_total,total_copied, nreplicas, problematic, url, stuck_total, stuck_copied);
 

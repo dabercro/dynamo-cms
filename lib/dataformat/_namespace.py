@@ -20,7 +20,10 @@ def Dataset_format_software_version(value):
 
 def Block_to_internal_name(name_str):
     # block name format: [8]-[4]-[4]-[4]-[12] where [n] is an n-digit hex.
-    return long(name_str.replace('-', ''), 16)
+    try:
+        return long(name_str.replace('-', ''), 16)
+    except ValueError:
+        raise ObjectError('Invalid block name %s' % name_str)
 
 def Block_to_real_name(name):
     full_string = hex(name).replace('0x', '')[:-1] # last character is 'L'
