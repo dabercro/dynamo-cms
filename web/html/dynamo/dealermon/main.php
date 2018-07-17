@@ -2,8 +2,8 @@
 
 include_once('db_conf.php');
 
-$track_transfers = '/var/spool/dynamo/dealermon/track_transfers'
-$track_phedex = '/var/spool/dynamo/dealermon/track_phedex'
+$track_transfers = '/var/spool/dynamo/dealermon/track_transfers';
+$track_phedex = '/var/spool/dynamo/dealermon/track_phedex';
 
 //Function to get an array of total aggregate requested data size ordered by their calendar date of request
 if ( (isset($_REQUEST['getHistory']) && $_REQUEST['getHistory']) ) {
