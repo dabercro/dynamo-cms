@@ -272,6 +272,8 @@ class PhEDExDatasetInfoSource(DatasetInfoSource):
         return block
 
     def _create_file(self, file_entry, block):
+        adler32 = ''
+        crc32 = 0
         for cksum in file_entry['checksum'].split(','):
             if cksum.startswith('adler32'):
                 adler32 = cksum[8:]

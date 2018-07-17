@@ -295,8 +295,14 @@ else:
         site_dataset_combos = [(c[0], d) for d in args.datasets for c in site_dataset_combos]
 
     updated_replicas = []
-    for site_name, dataset_name in site_dataset_combos:
-        updated_replicas.extend(replica_source.get_replicas(site = site_name, dataset = dataset_name))
+
+    lock = threading.Lock()
+    def add_updated_replicas(site_name, dataset_name):
+        replicas = replica_source.get_replicas(site = site_name, dataset = dataset_name)
+        with lock:
+            updated_replicas.extend(replicas)
+
+    parallelizer.execute(add_updated_replicas, site_dataset_combos)
 
     dataset_names = set(br.block.dataset.name for br in updated_replicas)
 
