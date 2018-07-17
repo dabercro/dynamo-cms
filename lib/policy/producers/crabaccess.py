@@ -6,7 +6,7 @@ import fnmatch
 import MySQLdb
 
 from dynamo.utils.interface.popdb import PopDB
-from dynamo.utils.interface.mysql import MySQL
+from dynamo.history.history import HistoryDatabase
 from dynamo.dataformat import Configuration, Site
 from dynamo.utils.parallel import Map
 
@@ -32,7 +32,7 @@ class CRABAccessHistory(object):
         if config is None:
             config = CRABAccessHistory._default_config
 
-        self._store = MySQL(config.store)
+        self._history = HistoryDatabase(config.get('history', None))
         self._popdb = PopDB(config.get('popdb', None))
 
         self.max_back_query = config.get('max_back_query', 7)
@@ -44,6 +44,7 @@ class CRABAccessHistory(object):
 
     def set_read_only(self, value = True):
         self._read_only = value
+        self._history.set_read_only(value)
 
     def load(self, inventory):
         records = self._get_stored_records(inventory)
@@ -69,7 +70,7 @@ class CRABAccessHistory(object):
         current_dataset_name = ''
         dataset_exists = True
         replica = None
-        for dataset_name, timestamp, num_accesses in self._store.xquery(sql):
+        for dataset_name, timestamp, num_accesses in self._history.db.xquery(sql):
             num_records += 1
 
             if dataset_name == current_dataset_name:
@@ -91,7 +92,7 @@ class CRABAccessHistory(object):
             accesses.append((timestamp, num_accesses))
 
         try:
-            last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `system`')[0]
+            last_update = self._history.db.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `popularity_last_update`')[0]
         except IndexError:
             last_update = 0
 
@@ -141,14 +142,14 @@ class CRABAccessHistory(object):
     def update(self, inventory):
         try:
             try:
-                last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `system`')[0]
+                last_update = self._history.db.query('SELECT UNIX_TIMESTAMP(`dataset_accesses_last_update`) FROM `popularity_last_update`')[0]
             except IndexError:
                 last_update = time.time() - 3600 * 24 # just go back by a day
                 if not self._read_only:
-                    self._store.query('INSERT INTO `system` VALUES ()')
+                    self._history.db.query('INSERT INTO `popularity_last_update` VALUES ()')
 
             if not self._read_only:
-                self._store.query('UPDATE `system` SET `dataset_accesses_last_update` = NOW()', retries = 0, silent = True)
+                self._history.db.query('UPDATE `popularity_last_update` SET `dataset_accesses_last_update` = NOW()', retries = 0, silent = True)
 
         except MySQLdb.OperationalError:
             # We have a read-only config
@@ -163,8 +164,8 @@ class CRABAccessHistory(object):
         if not self._read_only:
             self._save_records(source_records)
             # remove old entries
-            self._store.query('DELETE FROM `dataset_accesses` WHERE `date` < DATE_SUB(NOW(), INTERVAL 2 YEAR)')
-            self._store.query('UPDATE `system` SET `dataset_accesses_last_update` = NOW()')
+            self._history.db.query('DELETE FROM `dataset_accesses` WHERE `date` < DATE_SUB(NOW(), INTERVAL 2 YEAR)')
+            self._history.db.query('UPDATE `popularity_last_update` SET `dataset_accesses_last_update` = NOW()')
 
     def _get_source_records(self, inventory, start_date):
         """
@@ -263,19 +264,22 @@ class CRABAccessHistory(object):
         @param records  {replica: {date: (number of access, total cpu time)}}
         """
 
-        site_id_map = {}
-        self._store.make_map('sites', set(r.site for r in records.iterkeys()), site_id_map, None)
-        dataset_id_map = {}
-        self._store.make_map('datasets', set(r.dataset for r in records.iterkeys()), dataset_id_map, None)
+        site_names = set(r.site.name for r in records.iterkeys())
+        self._history.save_sites(site_names)
+        site_id_map = dict(self._history.db.select_many('sites', ('name', 'id'), 'name', site_names))
+
+        dataset_names = set(r.dataset.name for r in records.iterkeys())
+        self._history.save_datasets(dataset_names)
+        dataset_id_map = dict(self._history.db.select_many('datasets', ('name', 'id'), dataset_names))
 
         fields = ('dataset_id', 'site_id', 'date', 'access_type', 'num_accesses', 'cputime')
 
         data = []
         for replica, entries in records.iteritems():
-            dataset_id = dataset_id_map[replica.dataset]
-            site_id = site_id_map[replica.site]
+            dataset_id = dataset_id_map[replica.dataset.name]
+            site_id = site_id_map[replica.site.name]
 
             for date, (num_accesses, cputime) in entries.iteritems():
                 data.append((dataset_id, site_id, date.strftime('%Y-%m-%d'), 'local', num_accesses, cputime))
 
-        self._store.insert_many('dataset_accesses', fields, None, data, do_update = True)
+        self._history.db.insert_many('dataset_accesses', fields, None, data, do_update = True)

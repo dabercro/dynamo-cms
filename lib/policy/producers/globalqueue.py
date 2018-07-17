@@ -6,7 +6,7 @@ import MySQLdb
 
 from dynamo.dataformat import Configuration
 from dynamo.utils.interface.htc import HTCondor
-from dynamo.utils.interface.mysql import MySQL
+from dynamo.history.history import HistoryDatabase
 
 GlobalQueueJob = collections.namedtuple('GlobalQueueJob', ['queue_time', 'completion_time', 'nodes_total', 'nodes_done', 'nodes_failed', 'nodes_queued'])
 
@@ -30,7 +30,7 @@ class GlobalQueueRequestHistory(object):
         if config is None:
             config = GlobalQueueRequestHistory._default_config
 
-        self._store = MySQL(config.store)
+        self._history = HistoryDatabase(config.get('history', None))
         self._htcondor = HTCondor(config.get('htcondor', None))
 
         # Weight computation halflife constant (given in days in config)
@@ -65,7 +65,7 @@ class GlobalQueueRequestHistory(object):
         # little speedup by not repeating lookups for the same dataset
         current_dataset_name = ''
         dataset_exists = True
-        for dataset_name, job_id, queue_time, completion_time, nodes_total, nodes_done, nodes_failed, nodes_queued in self._store.xquery(sql):
+        for dataset_name, job_id, queue_time, completion_time, nodes_total, nodes_done, nodes_failed, nodes_queued in self._history.db.xquery(sql):
             num_records += 1
 
             if dataset_name == current_dataset_name:
@@ -87,7 +87,7 @@ class GlobalQueueRequestHistory(object):
             requests[job_id] = GlobalQueueJob(queue_time, completion_time, nodes_total, nodes_done, nodes_failed, nodes_queued)
 
         try:
-            last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_requests_last_update`) FROM `system`', retries = 1)[0]
+            last_update = self._history.db.query('SELECT UNIX_TIMESTAMP(`dataset_requests_last_update`) FROM `popularity_last_update`', retries = 1)[0]
         except IndexError:
             last_update = 0
 
@@ -124,14 +124,14 @@ class GlobalQueueRequestHistory(object):
     def update(self, inventory):
         try:
             try:
-                last_update = self._store.query('SELECT UNIX_TIMESTAMP(`dataset_requests_last_update`) FROM `system`', retries = 1)[0]
+                last_update = self._history.db.query('SELECT UNIX_TIMESTAMP(`dataset_requests_last_update`) FROM `popularity_last_update`', retries = 1)[0]
             except IndexError:
                 last_update = time.time() - 3600 * 24 # just go back by a day
                 if not self._read_only:
-                    self._store.query('INSERT INTO `system` VALUES ()')
+                    self._history.db.query('INSERT INTO `popularity_last_update` VALUES ()')
 
             if not self._read_only:
-                self._store.query('UPDATE `system` SET `dataset_requests_last_update` = NOW()', retries = 0, silent = True)
+                self._history.db.query('UPDATE `popularity_last_update` SET `dataset_requests_last_update` = NOW()', retries = 0, silent = True)
 
         except MySQLdb.OperationalError:
             # We have a read-only config
@@ -143,8 +143,8 @@ class GlobalQueueRequestHistory(object):
         if not self._read_only:
             self._save_records(source_records)
             # remove old entries
-            self._store.query('DELETE FROM `dataset_requests` WHERE `queue_time` < DATE_SUB(NOW(), INTERVAL 1 YEAR)')
-            self._store.query('UPDATE `system` SET `dataset_requests_last_update` = NOW()')
+            self._history.db.query('DELETE FROM `dataset_requests` WHERE `queue_time` < DATE_SUB(NOW(), INTERVAL 1 YEAR)')
+            self._history.db.query('UPDATE `popularity_last_update` SET `dataset_requests_last_update` = NOW()')
 
     def _get_source_records(self, inventory, last_update):
         """
@@ -203,14 +203,16 @@ class GlobalQueueRequestHistory(object):
         @param records  {dataset: {jobid: GlobalQueueJob}}
         """
 
-        dataset_id_map = {}
-        self._store.make_map('datasets', records.iterkeys(), dataset_id_map, None)
+        dataset_names = [d.name for d in records.iterkeys()]
+
+        self._history.save_datasets(dataset_names)
+        dataset_id_map = dict(self._history.db.select_many('datasets', ('name', 'id'), 'name', dataset_names))
 
         fields = ('id', 'dataset_id', 'queue_time', 'completion_time', 'nodes_total', 'nodes_done', 'nodes_failed', 'nodes_queued')
 
         data = []
         for dataset, dataset_request_list in records.iteritems():
-            dataset_id = dataset_id_map[dataset]
+            dataset_id = dataset_id_map[dataset.name]
 
             for job_id, (queue_time, completion_time, nodes_total, nodes_done, nodes_failed, nodes_queued) in dataset_request_list.iteritems():
                 data.append((
@@ -224,5 +226,5 @@ class GlobalQueueRequestHistory(object):
                     nodes_queued
                 ))
 
-        self._store.insert_many('dataset_requests', fields, None, data, do_update = True)
+        self._history.db.insert_many('dataset_requests', fields, None, data, do_update = True)
 
