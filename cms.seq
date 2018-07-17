@@ -1,8 +1,8 @@
-<detox> = $(DYNAMO_BASE)/exec/detox_cms
-<dealer> = $(DYNAMO_BASE)/exec/dealer_cms
-<updater> = $(DYNAMO_BASE)/exec/updater_cms
-<update_sites> = $(DYNAMO_BASE)/exec/update_sites_cms
-{update_popularity} = $(DYNAMO_BASE)/exec/update_popularity_cms
+<detox> = $(DYNAMO_BASE)/exec/detox
+<dealer> = $(DYNAMO_BASE)/exec/dealer
+<updater> = $(DYNAMO_BASE)/exec/updater
+<update_sites> = $(DYNAMO_BASE)/exec/update_sites
+{update_popularity} = $(DYNAMO_BASE)/exec/update_popularity
 {convert_locks} = $(DYNAMO_BASE)/exec/convert_detox_locks
 {track_transfers} = $(DYNAMO_BASE)/exec/track_transfers
 {track_phedex} = $(DYNAMO_BASE)/exec/track_phedex
