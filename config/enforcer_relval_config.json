@@ -1,0 +1,4 @@
+{
+  "max_dataset_size": 2000.0,
+  "policy": "/usr/share/dynamo-policies/common/enforcer_rules_relval.json"
+}

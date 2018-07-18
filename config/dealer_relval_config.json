@@ -7,10 +7,7 @@
         "priority": 1,
         "module": "enforcer:EnforcerHandler",
         "config": {
-          "enforcer": {
-            "max_dataset_size": 50.0,
-            "policy": "$(DYNAMO_POLICIES)/common/enforcer_rules_relval.json"
-          }
+          "enforcer": "/etc/dynamo/enforcer_relval_config.json"
         }
       }
     },
