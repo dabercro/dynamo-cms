@@ -62,7 +62,7 @@ for partition in config.partitions:
     if cycle == 0:
         timestamp = 0
     else:
-        timestamp = history.db.query('SELECT UNIX_TIMESTAMP(`time_end`) FROM `deletion_cycles` WHERE `id` = %s', cycle)
+        timestamp = history.db.query('SELECT UNIX_TIMESTAMP(`time_end`) FROM `deletion_cycles` WHERE `id` = %s', cycle)[0]
 
     sitesinfo.write('#- %s\n' % time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(timestamp)))
     sitesinfo.write('#\n')
@@ -91,7 +91,7 @@ for partition in config.partitions:
         if site.endswith('_MSS'):
             continue
 
-        sid, status, quota = sites_info[site]
+        status, quota = sites_info[site]
         try:
             protect, delete, keep = sites_usage[site]
         except KeyError:

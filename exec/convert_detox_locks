@@ -36,9 +36,6 @@ LOG.info('Translating web-based replica locks into DB-based locks.')
 expiry = time.strftime('%Y-%m-%d', time.localtime(time.time() + 3600 * 24 * 60))
 comment = 'Auto-produced by dynamo'
 
-# Will query PhEDEx later for those
-unlocked_datasets = set()
-
 # The registry object
 registry = RegistryDatabase()
 
@@ -105,13 +102,6 @@ try:
                 registry.db.query('UPDATE `detox_locks` SET `unlock_date` = NOW() WHERE `id` = %s', existing_lock_ids[(item, site)])
 
             num_unlocked += 1
-
-            try:
-                dataset_name, block_name = Block.from_full_name(item)
-            except ObjectError:
-                unlocked_datasets.add(item)
-            else:
-                unlocked_datasets.add(dataset_name)
     
         LOG.info('Locked: %d, Unlocked: %d', num_locked, num_unlocked)
 
@@ -120,22 +110,3 @@ try:
 finally:
     if authorized:
         registry.unlock_app('detox', config.applock_user)
-
-# update block replicas that got unlocked
-from dynamo.source.impl.phedexreplicainfo import PhEDExReplicaInfoSource
-
-replica_source = PhEDExReplicaInfoSource(config.replica_source)
-
-for dataset_name in unlocked_datasets:
-    try:
-        dataset = inventory.datasets[dataset_name]
-    except KeyError:
-        continue
-        
-    source_reps = replica_source.get_replicas(dataset = dataset.name)
-    if len(source_reps) == 0:
-        # not good but fine
-        continue
-
-    for rep in source_reps:
-        inventory.update(rep)

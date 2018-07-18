@@ -143,7 +143,8 @@ for rid, opid, item_name, site_name, group_name in reservations_db.query('SELECT
 # 4. Loop over new and changed block replicas, add them to inventory
 # 5. Pick up deleted block replicas
 # 6. Loop over deleted replicas
-# 7. Save the execution state
+# 7. Set growing flag for dataset replicas
+# 8. Save the execution state
 
 parallelizer = Map()
 parallelizer.timeout = 7200
@@ -652,7 +653,25 @@ for replica in deleted_replicas:
         LOG.debug('Replica not found.')
         pass
 
-# 7. Save the execution state
+# 7. Set growing flag for dataset replicas
+
+for dataset in inventory.datasets.itervalues():
+    if len(dataset.blocks) == 0:
+        continue
+
+    for replica in dataset.replicas:
+        if len(replica.block_replicas) == len(dataset.blocks):
+            if not replica.growing:
+                replica.growing = True
+                replica.group = list(replica.block_replicas)[0].group
+                inventory.register_update(replica)
+        else:
+            if replica.growing:
+                replica.growing = False
+                replica.group = Group.null_group
+                inventory.register_update(replica)
+
+# 8. Save the execution state
 
 if authorized and args.mode is not None and os.path.exists(config.updater_state_file):
     # Regardless of update mode, clear the updated datasets from the table
