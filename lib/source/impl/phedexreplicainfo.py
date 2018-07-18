@@ -172,6 +172,8 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                         if sub_entry['node_bytes'] == block_entry['bytes']:
                             # complete
                             replica.size = sub_entry['node_bytes']
+                            if replica.size is None:
+                                replica.size = 0
                             replica.files = None
                         else:
                             # incomplete - since we cannot know what files are there, we'll just have to pretend there is none
@@ -259,15 +261,24 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                 if dataset_check and not dataset_check(dataset_name):
                     continue
     
-                dataset = Dataset(
-                    dataset_name
-                )
+                try:
+                    dataset = Dataset(
+                        dataset_name
+                    )
+                except ObjectError:
+                    # invalid name
+                    dataset = None
+
+            if dataset is None:
+                continue
             
             block = Block(
                 block_name,
                 dataset,
                 block_entry['bytes']
             )
+            if block.size is None:
+                block.size = 0
 
             block_replicas.extend(replica_maker(block, block_entry, site_check = site_check))
 
@@ -338,7 +349,9 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
     
                     # add LFN instead of file id
                     block_replica.file_ids.append(file_entry['name'])
-                    block_replica.size += file_entry['bytes']
+                    file_size = file_entry['bytes']
+                    if file_size is not None:
+                        block_replica.size += file_size
     
                     try:
                         time_create = int(replica_entry['time_create'])

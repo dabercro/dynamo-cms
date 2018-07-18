@@ -270,7 +270,7 @@ class CRABAccessHistory(object):
 
         dataset_names = set(r.dataset.name for r in records.iterkeys())
         self._history.save_datasets(dataset_names)
-        dataset_id_map = dict(self._history.db.select_many('datasets', ('name', 'id'), dataset_names))
+        dataset_id_map = dict(self._history.db.select_many('datasets', ('name', 'id'), 'name', dataset_names))
 
         fields = ('dataset_id', 'site_id', 'date', 'access_type', 'num_accesses', 'cputime')
 

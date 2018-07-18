@@ -432,7 +432,11 @@ for dataset_tmp in dataset_tmps:
 
     for block_name in (set(existing_blocks.iterkeys()) - block_names_in_source):
         LOG.debug('Deleting block %s', block_name)
-        inventory.delete(existing_blocks[block_name])
+        try:
+            inventory.delete(existing_blocks[block_name])
+        except:
+            print existing_blocks[block_name].full_name()
+            raise
 
 LOG.info('100% done.')
 
