@@ -37,8 +37,8 @@ class CRABAccessHistory(object):
 
         self.max_back_query = config.get('max_back_query', 7)
 
-        self.included_sites = list(config.get('included_sites', []))
-        self.excluded_sites = list(config.get('excluded_sites', []))
+        self.included_sites = list(config.get('include_sites', []))
+        self.excluded_sites = list(config.get('exclude_sites', []))
 
         self.set_read_only(config.get('read_only', False))
 
@@ -189,11 +189,13 @@ class CRABAccessHistory(object):
 
         arg_pool = []
         for site in inventory.sites.itervalues():
-            matched = False
+            matched = (len(self.included_sites) == 0)
+
             for pattern in self.included_sites:
                 if fnmatch.fnmatch(site.name, pattern):
                     matched = True
                     break
+
             for pattern in self.excluded_sites:
                 if fnmatch.fnmatch(site.name, pattern):
                     matched = False

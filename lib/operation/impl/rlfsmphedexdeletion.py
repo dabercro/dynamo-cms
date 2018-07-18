@@ -53,7 +53,7 @@ class RLFSMPhEDExReserveDeletionInterface(DeletionInterface):
             else:
                 clones.append((clone_replica, []))
                 for block_replica in block_replicas:
-                    clone_block_replica = BlockReplica(block_replica.block, block_replica.site)
+                    clone_block_replica = BlockReplica(block_replica.block, block_replica.site, block_replica.group)
                     clone_block_replica.copy(block_replica)
                     clone_block_replica.last_update = int(time.time())
                     clones[-1][1].append(clone_block_replica)

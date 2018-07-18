@@ -15,7 +15,7 @@
 WAIT 60
 
 [SEQUENCE site_update]
-& <update_sites>
+& <update_sites> --config /etc/dynamo/updater_config.json
 WAIT 1800
 
 [SEQUENCE full_update]
