@@ -124,6 +124,8 @@ class PhEDExSiteInfoSource(SiteInfoSource):
                     # can't be possibly right
                     break
 
+            result = result.replace('\\', '')
+
             if elem['protocol'] in conversions:
                 conversions[elem['protocol']].append((elem['path-match'], result, chain))
             else:
