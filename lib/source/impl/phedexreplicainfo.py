@@ -99,6 +99,8 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
             if block_entry['replica'][0]['complete'] == 'n':
                 combine_file.add_input(block_entry)
 
+        combine_file.close()
+
         # _combine_file_info alters block_entries directly - no need to deal with output
         combine_file.get_outputs()
 
@@ -217,6 +219,8 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
                 if block_entry['replica'][0]['complete'] == 'n':
                     combine_file.add_input(block_entry)
+
+        combine_file.close()
 
         # _combine_file_info alters block_entries directly - no need to deal with output
         combine_file.get_outputs()
