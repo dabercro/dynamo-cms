@@ -97,6 +97,14 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
         for block_entry in block_entries:
             if block_entry['replica'][0]['complete'] == 'n':
+                try:
+                    dataset_name, block_name = Block.from_full_name(block_entry['name'])
+                except ObjectError: # invalid name
+                    continue
+    
+                if dataset_check and not dataset_check(dataset_name):
+                    continue
+
                 combine_file.add_input(block_entry)
 
         combine_file.close()
