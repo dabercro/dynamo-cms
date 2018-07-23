@@ -23,8 +23,8 @@
         }
       ],
       [
-        "site.name == T2_GR_Ioannina",
-        "standalone:StandaloneFileOperation",
+        "site.name in [T2_DE_DESY T2_DE_RWTH T2_ES_CIEMAT T2_IT_Legnaro T2_PL_Swierk]",
+        "fts:FTSFileOperation",
         {
           "db_params": {
             "user": "dynamofod",
