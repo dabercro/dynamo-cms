@@ -7,7 +7,7 @@ from dynamo.source.datasetinfo import DatasetInfoSource
 from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.interface.dbs import DBS
 from dynamo.utils.parallel import Map
-from dynamo.dataformat import Dataset, Block, File, IntegrityError
+from dynamo.dataformat import Configuration, Dataset, Block, File, IntegrityError
 
 LOG = logging.getLogger(__name__)
 
