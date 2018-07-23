@@ -1,0 +1,43 @@
+{
+  "rlfsm": {
+    "db": {
+      "db_params": {
+        "db": "dynamo",
+        "user": "dynamofod"
+      },
+      "history": "dynamohistory"
+    },
+    "transfer": [
+      [
+        null,
+        "fts:FTSFileOperation",
+        {
+          "db_params": {
+            "user": "dynamofod",
+            "db": "dynamo"
+          },
+          "batch_size": 1000,
+          "fts_server": "https://t3serv019.mit.edu:8446",
+          "fts_retry": 3,
+          "metadata_string": "Dynamo"
+        }
+      ],
+      [
+        "site.name == T2_GR_Ioannina",
+        "standalone:StandaloneFileOperation",
+        {
+          "db_params": {
+            "user": "dynamofod",
+            "db": "dynamo"
+          },
+          "batch_size": 1000,
+          "fts_server": "https://t3serv019.mit.edu:8446",
+          "fts_retry": 3,
+          "metadata_string": "Dynamo",
+          "x509proxy": "/tmp/x509up_u500_production"
+        }
+      ]
+    ]
+  },
+  "log_level": "debug"
+}
