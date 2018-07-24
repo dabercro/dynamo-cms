@@ -23,7 +23,7 @@
         }
       ],
       [
-        "site.name in [T2_DE_DESY T2_DE_RWTH T2_ES_CIEMAT T2_IT_Legnaro T2_PL_Swierk]",
+        "site.name in [T2_BE_UCL T2_CN_Beijing T2_DE_DESY T2_DE_RWTH T2_ES_CIEMAT T2_IT_Legnaro T2_PL_Swierk]",
         "fts:FTSFileOperation",
         {
           "db_params": {
