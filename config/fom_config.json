@@ -17,13 +17,15 @@
             "db": "dynamo"
           },
           "batch_size": 1000,
+          "max_pending_transfers": 1000,
+          "max_pending_deletions": 1000,
           "fts_server": "https://t3serv019.mit.edu:8446",
           "fts_retry": 3,
           "metadata_string": "Dynamo"
         }
       ],
       [
-        "site.name in [T2_BE_UCL T2_CN_Beijing T2_DE_DESY T2_DE_RWTH T2_ES_CIEMAT T2_IT_Legnaro T2_PL_Swierk]",
+        "site.name in [T2_BE_UCL T2_BR_UERJ T2_CN_Beijing T2_DE_DESY T2_DE_RWTH T2_ES_CIEMAT T2_IT_Legnaro T2_PL_Swierk T2_RU_INR T2_RU_SINP]",
         "fts:FTSFileOperation",
         {
           "db_params": {
@@ -31,6 +33,8 @@
             "db": "dynamo"
           },
           "batch_size": 1000,
+          "max_pending_transfers": 1000,
+          "max_pending_deletions": 1000,
           "fts_server": "https://t3serv019.mit.edu:8446",
           "fts_retry": 3,
           "metadata_string": "Dynamo",
