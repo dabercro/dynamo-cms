@@ -695,30 +695,46 @@ if authorized and args.mode is not None and os.path.exists(config.updater_state_
 
 LOG.info('Collecting in-house transfers and deletions.')
 
-subscriptions = rlfsm.get_subscriptions(inventory, status = ['done'])
+subscriptions = rlfsm.get_subscriptions(inventory, status = ['done', 'new', 'retry'])
 
 completed_subscriptions = {}
 transferred_files = {}
+subscribed_files = {}
 completed_desubscriptions = {}
 deleted_files = {}
+desubscribed_files = {}
 
 for sub in subscriptions:
     if type(sub) is RLFSM.Subscription:
         key = (sub.file.block, sub.destination)
+
+        if sub.status == 'done':
+            try:
+                completed_subscriptions[key].append(sub.id)
+                transferred_files[key].append(sub.file.id)
+            except KeyError:
+                completed_subscriptions[key] = [sub.id]
+                transferred_files[key] = [sub.file.id]
+
         try:
-            completed_subscriptions[key].append(sub.id)
-            transferred_files[key].append(sub.file.id)
+            subscribed_files[key].append(sub.file.id)
         except KeyError:
-            completed_subscriptions[key] = [sub.id]
-            transferred_files[key] = [sub.file.id]
+            subscribed_files[key] = [sub.file.id]
     else:
         key = (sub.file.block, sub.site)
+
+        if sub.status == 'done':
+            try:
+                completed_desubscriptions[key].append(sub.id)
+                deleted_files[key].append(sub.file.id)
+            except KeyError:
+                completed_desubscriptions[key] = [sub.id]
+                deleted_files[key] = [sub.file.id]
+
         try:
-            completed_desubscriptions[key].append(sub.id)
-            deleted_files[key].append(sub.file.id)
+            desubscribed_files[key].append(sub.file.id)
         except KeyError:
-            completed_desubscriptions[key] = [sub.id]
-            deleted_files[key] = [sub.file.id]
+            desubscribed_files[key] = [sub.file.id]
 
 for key, file_ids in transferred_files.iteritems():
     block, site = key
@@ -797,6 +813,26 @@ for (dataset, site), (blocks, group, rid, opid) in transfer_reservations.iterite
 
         for block in blocks:
             replica.block_replicas.add(BlockReplica(block, site, group, size = 0))
+
+        continue
+
+    # Check that we have all necessary file subscriptions to complete this reservation eventually
+    for block in blocks:
+        n = 0
+        try:
+            subscribed_file_ids = set(subscribed_files[(block, site)])
+        except KeyError:
+            for lfile in block.files:
+                n += 1
+                rlfsm.subscribe_file(site, lfile)
+        else:
+            for lfile in block.files:
+                if lfile.id not in subscribed_file_ids:
+                    n += 1
+                    rlfsm.subscribe_file(site, lfile)
+
+        if n != 0:
+            LOG.warning('Recovered %d file subscriptions for %s at %s', n, block.full_name(), site.name)
             
 # Then deal with deletions
 
@@ -827,22 +863,8 @@ for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `oper
         continue
 
     if block_name is None:
-        dataset_done_ids = []
-        for block in dataset.blocks:
-            try:
-                dataset_done_ids.extend(completed_desubscriptions[(block, site)])
-            except KeyError:
-                break
-
-        else:
-            # All blocks completed
-            done_subscription_ids.extend(dataset_done_ids)
-            done_deletion_reservation_ids.append(rid)
-
-            if opid not in deletion_replica_list:
-                deletion_replica_list[opid] = {}
-
-            deletion_replica_list[opid][replica] = None
+        blocks = dataset.blocks
+        block_replica = None
 
     else:
         block = dataset.find_block(block_name)
@@ -852,22 +874,49 @@ for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `oper
                 reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
             continue
 
-        try:
-            done_subscription_ids.extend(completed_desubscriptions[(block, site)])
-        except KeyError:
-            continue
+        blocks = [block]
+        block_replica = block.find_replica(site)
 
+    dataset_done_ids = []
+    for block in blocks:
+        try:
+            dataset_done_ids.extend(completed_desubscriptions[(block, site)])
+        except KeyError:
+            break
+
+    else:
+        # All blocks completed
+        done_subscription_ids.extend(dataset_done_ids)
         done_deletion_reservation_ids.append(rid)
 
         if opid not in deletion_replica_list:
             deletion_replica_list[opid] = {}
 
-        block_replica = block.find_replica(site)
-
-        if replica not in deletion_replica_list[opid]:
+        if block_replica is None:
+            deletion_replica_list[opid][replica] = None
+        elif replica not in deletion_replica_list[opid]:
             deletion_replica_list[opid][replica] = [block_replica]
         elif deletion_replica_list[opid][replica] is not None:
             deletion_replica_list[opid][replica].append(block_replica)
+
+        continue
+
+    # Check that we have all necessary file desubscriptions to complete this reservation eventually
+    for block in blocks:
+        n = 0
+        try:
+            desubscribed_file_ids = set(desubscribed_files[(block, site)])
+        except KeyError:
+            for lfile in block.files:
+                n += 1
+                rlfsm.desubscribe_file(site, lfile)
+        else:
+            for lfile in block.files:
+                if lfile.id not in desubscribed_file_ids:
+                    n += 1
+                    rlfsm.desubscribe_file(site, lfile)
+        if n != 0:
+            LOG.warning('Recovered %d file desubscriptions for %s at %s', n, block.full_name(), site.name)
 
 # Execute on PhEDEx
 
