@@ -813,8 +813,8 @@ for key, subs in done_subscriptions.iteritems():
         pass
 
     else:
-        file_ids = [sub.file.id for sub in subs]
-        file_ids.extend(replica.file_ids)
+        file_ids = set(sub.file.id for sub in subs)
+        file_ids.update(replica.file_ids)
         if set(f.id for f in block.files) != set(file_ids):
             # block replica is not complete
             continue
@@ -849,6 +849,13 @@ for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iterite
     dataset = dataset_replica.dataset
     site = dataset_replica.site
 
+    # Remove the list of files from done_subscriptions -> remaining files in the list are non-reserved and should be used to simply update the inventory
+    for block in blocks:
+        try:
+            done_subscriptions.pop((block, site))
+        except KeyError:
+            pass
+
     dataset_done_ids = []
     for block in blocks:
         try:
@@ -860,10 +867,6 @@ for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iterite
         # All blocks completed
         done_subscription_ids.extend(dataset_done_ids)
         done_transfer_reservation_ids.append(rid)
-
-        # Remove the list of files from done_subscriptions -> remaining files in the list are non-reserved and should be used to simply update the inventory
-        for block in blocks:
-            done_subscriptions.pop((block, site))
 
         if opid not in copy_replica_list:
             copy_replica_list[opid] = []
@@ -891,15 +894,25 @@ for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iterite
 
     # Reservation is not complete - check that we have all necessary file subscriptions to complete this reservation eventually
     for block in blocks:
+        replica = block.find_replica(site) # replica must exist
+        if replica.file_ids is None:
+            continue
+
+        missing_files_d = dict((f.id, lfile) for lfile in block.files)
+        for fid in replica.file_ids:
+            missing_files_d.pop(fid)
+
+        missing_files = set(missing_files_d.itervalues())
+
         n = 0
         try:
             subscribed_file_ids = set(subscribed_files[(block, site)])
         except KeyError:
-            for lfile in block.files:
+            for lfile in missing_files:
                 n += 1
                 rlfsm.subscribe_file(site, lfile)
         else:
-            for lfile in block.files:
+            for lfile in missing_files:
                 if lfile.id not in subscribed_file_ids:
                     n += 1
                     rlfsm.subscribe_file(site, lfile)
@@ -908,6 +921,7 @@ for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iterite
             LOG.info('Created %d file subscriptions for %s at %s', n, block.full_name(), site.name)
             
 # Then deal with deletions
+# Next block follows very similar logic to transfer reservations - see above for descriptions
 
 done_deletion_reservation_ids = []
 deletion_replica_list = {} # {operation id: {datasetreplica: [blockreplicas]}}
@@ -915,6 +929,12 @@ deletion_replica_list = {} # {operation id: {datasetreplica: [blockreplicas]}}
 for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
     dataset = dataset_replica.dataset
     site = dataset_replica.site
+
+    for block in blocks:
+        try:
+            done_desubscriptions.pop((block, site))
+        except KeyError:
+            pass
 
     dataset_done_ids = []
     for block in blocks:
@@ -927,9 +947,6 @@ for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
         # All blocks completed
         done_subscription_ids.extend(dataset_done_ids)
         done_deletion_reservation_ids.append(rid)
-
-        for block in blocks:
-            done_desubscriptions.pop((block, site))
 
         if opid not in deletion_replica_list:
             deletion_replica_list[opid] = {}
@@ -945,15 +962,23 @@ for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
 
     # Check that we have all necessary file desubscriptions to complete this reservation eventually
     for block in blocks:
+        replica = block.find_replica(site) # replica must exist
+        if replica.file_ids is None:
+            existing_files = list(block.files)
+        elif len(replica.file_ids) == 0:
+            continue
+        else:
+            existing_files = list(f for f in block.files if f.id in replica.file_ids)
+
         n = 0
         try:
             desubscribed_file_ids = set(desubscribed_files[(block, site)])
         except KeyError:
-            for lfile in block.files:
+            for lfile in existing_files:
                 n += 1
                 rlfsm.desubscribe_file(site, lfile)
         else:
-            for lfile in block.files:
+            for lfile in existing_files:
                 if lfile.id not in desubscribed_file_ids:
                     n += 1
                     rlfsm.desubscribe_file(site, lfile)
@@ -994,6 +1019,8 @@ for opid, replicas in deletion_replica_list.iteritems():
 if authorized:
     reservations_db.delete_many('phedex_transfer_reservations', 'id', done_transfer_reservation_ids)
     reservations_db.delete_many('phedex_deletion_reservations', 'id', done_deletion_reservation_ids)
+
+# Update the inventory from non-reserved subscriptions
 
 for (block, site), subs in done_subscriptions.iteritems():
     replica = block.find_replica(site)
