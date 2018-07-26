@@ -852,7 +852,14 @@ for key, subs in done_subscriptions.iteritems():
     else:
         file_ids = set(sub.file.id for sub in subs)
         file_ids.update(replica.file_ids)
-        if set(f.id for f in block.files) != set(file_ids):
+        all_file_ids = set()
+        for f in block.files:
+            if f.id == 0:
+                all_file_ids.add(f.lfn)
+            else:
+                all_file_ids.add(f.id)
+
+        if all_file_ids != set(file_ids):
             # block replica is not complete
             continue
 
@@ -933,13 +940,13 @@ for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iterite
     for block in blocks:
         replica = block.find_replica(site) # replica must exist
         if replica.file_ids is None:
+            # no missing file
             continue
 
-        missing_files_d = dict((lfile.id, lfile) for lfile in block.files)
-        for fid in replica.file_ids:
-            missing_files_d.pop(fid)
-
-        missing_files = set(missing_files_d.itervalues())
+        missing_files = []
+        for lfile in block.files:
+            if not replica.has_file(lfile):
+                missing_files.append(lfile)
 
         n = 0
         try:
@@ -1005,7 +1012,10 @@ for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
         elif len(replica.file_ids) == 0:
             continue
         else:
-            existing_files = list(f for f in block.files if f.id in replica.file_ids)
+            existing_files = []
+            for lfile in block.files:
+                if replica.has_file(lfile):
+                    existing_files.append(lfile)
 
         n = 0
         try:
@@ -1070,11 +1080,18 @@ for (block, site), subs in done_subscriptions.iteritems():
     file_ids = set(replica.file_ids)
     file_ids.update(sub.file.id for sub in subs)
 
-    if file_ids == set(f.id for f in block.files):
+    all_file_ids = set()
+    for f in block.files:
+        if f.id == 0:
+            all_file_ids.add(f.lfn)
+        else:
+            all_file_ids.add(f.id)
+
+    if file_ids == all_file_ids:
         replica.size = block.size
         replica.file_ids = None
     else:
-        replica.size = sum(f.size for f in block.files if f.id in file_ids)
+        replica.size += sum(sub.file.size for sub in subs)
         replica.file_ids = tuple(file_ids)
 
     inventory.register_update(replica)
@@ -1085,7 +1102,12 @@ for (block, site), subs in done_desubscriptions.iteritems():
     done_subscription_ids.extend(sub.id for sub in subs)
 
     if replica.file_ids is None:
-        file_ids = set(f.id for f in block.files)
+        file_ids = set()
+        for f in block.files:
+            if f.id == 0:
+                file_ids.add(f.lfn)
+            else:
+                file_ids.add(f.id)
     else:
         file_ids = set(replica.file_ids)
 
@@ -1094,7 +1116,7 @@ for (block, site), subs in done_desubscriptions.iteritems():
     if len(file_ids) == 0:
         inventory.delete(replica)
     else:
-        replica.size = sum(f.size for f in block.files if f.id in file_ids)
+        replica.size -= sum(sub.file.size for sub in subs)
         replica.file_ids = tuple(file_ids)
         inventory.register_update(replica)
 
