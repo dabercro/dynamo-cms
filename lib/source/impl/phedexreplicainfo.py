@@ -199,7 +199,7 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
         return block_replicas
 
-    def get_updated_replicas(self, updated_since): #override
+    def get_updated_replicas(self, updated_since, inventory): #override
         LOG.info('get_updated_replicas(%d)  Fetching the list of replicas from PhEDEx', updated_since)
 
         nodes = []
@@ -207,33 +207,69 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
             if not self.check_allowed_site(entry['name']):
                 continue
 
+            if entry['name'] not in inventory.sites:
+                continue
+
             nodes.append(entry['name'])
 
         parallelizer = Map()
         parallelizer.timeout = 3600
 
+        def get_node_replicas(node):
+            options = ['update_since=%d' % updated_since, 'node=%s' % node]
+            results = self._phedex.make_request('blockreplicas', options)
+            return node, results
+
         # Use async to fire threads on demand
-        arguments = [('blockreplicas', ['update_since=%d' % updated_since, 'node=%s' % node]) for node in nodes]
-        node_results = parallelizer.execute(self._phedex.make_request, arguments, async = True)
+        node_results = parallelizer.execute(get_node_replicas, nodes, async = True)
 
         # Automatically starts a thread as we add the output of block_replicas
         combine_file = parallelizer.get_starter(self._combine_file_info)
 
-        block_entries = []
+        all_block_entries = []
 
-        for node_block_entries in node_results:
-            for block_entry in node_block_entries:
-                block_entries.append(block_entry)
+        for node, block_entries in node_results:
+            site = inventory.sites[node]
 
-                if block_entry['replica'][0]['complete'] == 'n':
-                    combine_file.add_input(block_entry)
+            for block_entry in block_entries:
+                all_block_entries.append(block_entry)
+
+                replica_entry = block_entry['replica'][0]
+
+                if replica_entry['complete'] == 'y':
+                    continue
+
+                # incomplete block replica - should we fetch file info?
+                try:
+                    dataset_name, block_name = Block.from_full_name(block_entry['name'])
+                except ObjectError:
+                    pass
+                else:
+                    try:
+                        dataset = inventory.datasets[dataset_name]
+                        block = dataset.find_block(block_name)
+                        replica = block.find_replica(site)
+                        if replica.file_ids is None:
+                            num_files = block.num_files
+                        else:
+                            num_files = len(replica.file_ids)
+
+                        if replica.size == replica_entry['bytes'] and num_files == replica_entry['files']:
+                            # no we don't have to
+                            continue
+                    except:
+                        # At any point of the above lookups we may hit a None object or KeyError or what not
+                        pass
+                        
+                LOG.debug('Replica %s:%s is incomplete. Fetching file information.', block_entry['node'], block_entry['name'])
+                combine_file.add_input(block_entry)
 
         combine_file.close()
 
         # _combine_file_info alters block_entries directly - no need to deal with output
         combine_file.get_outputs()
 
-        return PhEDExReplicaInfoSource.make_block_replicas(block_entries, PhEDExReplicaInfoSource.maker_blockreplicas, dataset_check = self.check_allowed_dataset)
+        return PhEDExReplicaInfoSource.make_block_replicas(all_block_entries, PhEDExReplicaInfoSource.maker_blockreplicas, dataset_check = self.check_allowed_dataset)
 
     def get_deleted_replicas(self, deleted_since): #override
         LOG.info('get_deleted_replicas(%d)  Fetching the list of replicas from PhEDEx', deleted_since)

@@ -33,6 +33,7 @@ from dynamo.operation.impl.phedexdeletion import PhEDExDeletionInterface
 from dynamo.operation.history import DeletionHistoryDatabase, CopyHistoryDatabase
 from dynamo.fileop.rlfsm import RLFSM
 from dynamo.utils.interface.mysql import MySQL
+from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.parallel import Map
 
 config = Configuration(args.config)
@@ -90,6 +91,7 @@ phedex_copy = PhEDExCopyInterface()
 phedex_deletion = PhEDExDeletionInterface()
 copy_history = CopyHistoryDatabase()
 deletion_history = DeletionHistoryDatabase()
+phedex = PhEDEx()
 
 if not authorized:
     rlfsm.set_read_only()
@@ -102,10 +104,35 @@ if not authorized:
 
 reservations_db = MySQL(config.reservations_db_params)
 
+transfer_reservation_entries = reservations_db.query('SELECT `id`, `operation_id`, `item`, `site`, `group` FROM `phedex_transfer_reservations`')
+
+# Reserved transfer should be canceled if there is already a subscription
+def find_subscription(rid, opid, item_name, site_name, group_name):
+    try:
+        Block.from_full_name(item_name)
+    except ObjectError:
+        is_block = False
+    else:
+        is_block = True
+
+    options = ['node=' + site_name, 'group=' + group_name]
+    if is_block:
+        options.append('block=' + item_name)
+    else:
+        options.append('dataset=' + item_name)
+
+    dataset_entries = phedex.make_request('subscriptions', options)
+
+    return item_name, site_name, (len(dataset_entries) != 0)
+
+subscription_results = Map().execute(find_subscription, transfer_reservation_entries)
+
+existing_subscriptions = set((item_name, site_name) for item_name, site_name, exists in subscription_results if exists)
+
 # Pre-fetch the list of reserved transfers before we deal with deletions
 transfer_reservations = {} # {(dataset, site): (set(blocks), group, reservation id, operation id)}
 
-for rid, opid, item_name, site_name, group_name in reservations_db.query('SELECT `id`, `operation_id`, `item`, `site`, `group` FROM `phedex_transfer_reservations`'):
+for rid, opid, item_name, site_name, group_name in transfer_reservation_entries:
     try:
         dataset_name, block_name = Block.from_full_name(item_name)
     except ObjectError:
@@ -151,6 +178,16 @@ for rid, opid, item_name, site_name, group_name in reservations_db.query('SELECT
             inventory.update(BlockReplica(block, site, group, size = 0))
 
         blocks = set([block])
+
+    if (item_name, site_name) in existing_subscriptions:
+        LOG.info('PhEDEx subscription of %s at %s already exists. Deleting the reservation and canceling the subscriptions.', item_name, site_name)
+        if authorized:
+            reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
+        for block in blocks:
+            for lfile in block.files:
+                rlfsm.cancel_subscription(site, lfile)
+
+        continue
 
     transfer_reservations[replica] = (blocks, group, rid, opid)
 
@@ -898,7 +935,7 @@ for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iterite
         if replica.file_ids is None:
             continue
 
-        missing_files_d = dict((f.id, lfile) for lfile in block.files)
+        missing_files_d = dict((lfile.id, lfile) for lfile in block.files)
         for fid in replica.file_ids:
             missing_files_d.pop(fid)
 
@@ -1057,8 +1094,8 @@ for (block, site), subs in done_desubscriptions.iteritems():
     if len(file_ids) == 0:
         inventory.delete(replica)
     else:
+        replica.size = sum(f.size for f in block.files if f.id in file_ids)
         replica.file_ids = tuple(file_ids)
-        replica.size -= sum(f.size for f in block.files if f.id in file_ids)
         inventory.register_update(replica)
 
 # Remove subscription entries with status 'done'
