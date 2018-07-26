@@ -261,7 +261,7 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                         # At any point of the above lookups we may hit a None object or KeyError or what not
                         pass
                         
-                LOG.debug('Replica %s:%s is incomplete. Fetching file information.', block_entry['node'], block_entry['name'])
+                LOG.debug('Replica %s:%s is incomplete. Fetching file information.', replica_entry['node'], block_entry['name'])
                 combine_file.add_input(block_entry)
 
         combine_file.close()
