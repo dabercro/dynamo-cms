@@ -776,26 +776,8 @@ if args.mode != 'NoPhEDEx':
                     replica.group = Group.null_group
                     inventory.register_update(replica)
     
-    # 8. Save the execution state
+    # 8. Save the execution state (at the end of the script)
     
-    if authorized and args.mode is not None and os.path.exists(config.updater_state_file):
-        # Regardless of update mode, clear the updated datasets from the table
-        state_db = sqlite3.connect(config.updater_state_file)
-        cursor = state_db.cursor()
-    
-        # Additionally for replica updates
-        if args.mode == 'ReplicaDelta':
-            sql = 'INSERT INTO `replica_delta_updates` VALUES (?, ?, ?)'
-            cursor.execute(sql, (update_start, len(updated_replicas), len(deleted_replicas)))
-    
-        elif args.mode == 'ReplicaFull':
-            for site_name, dataset_name in site_dataset_combos:
-                tier = dataset_name[dataset_name.rfind('/') + 1:]
-                cursor.execute('DELETE FROM `replica_full_updates` WHERE `site` = ? AND `tier` = ?', (site_name, tier))
-    
-        state_db.commit()
-        state_db.close()
-
 #close if args.mode != 'NoPhEDEx':
 
 ## Deal with Dynamo-run transfers and deletions
@@ -1062,11 +1044,6 @@ for opid, replicas in deletion_replica_list.iteritems():
                 block_replica.group = Group.null_group
                 inventory.update(block_replica)
 
-# Remove completed reservations
-if authorized:
-    reservations_db.delete_many('phedex_transfer_reservations', 'id', done_transfer_reservation_ids)
-    reservations_db.delete_many('phedex_deletion_reservations', 'id', done_deletion_reservation_ids)
-
 # Update the inventory from non-reserved subscriptions
 
 for (block, site), subs in done_subscriptions.iteritems():
@@ -1120,9 +1097,35 @@ for (block, site), subs in done_desubscriptions.iteritems():
         replica.file_ids = tuple(file_ids)
         inventory.register_update(replica)
 
-# Remove subscription entries with status 'done'
+# Make changes to the local databases
 # This is dangerous though - if inventory update fails on the server side for some reason,
 # we might not see the inconsistency for a while.
+
+# Remove completed subscriptions
 rlfsm.close_subscriptions(done_subscription_ids)
+
+if authorized:
+    # Remove completed reservations
+    reservations_db.delete_many('phedex_transfer_reservations', 'id', done_transfer_reservation_ids)
+    reservations_db.delete_many('phedex_deletion_reservations', 'id', done_deletion_reservation_ids)
+
+    # Step 8 of PhEDEx updates
+    if args.mode in ('ReplicaDelta', 'ReplicaFull') and os.path.exists(config.updater_state_file):
+        state_db = sqlite3.connect(config.updater_state_file)
+        cursor = state_db.cursor()
+    
+        # Additionally for replica updates
+        if args.mode == 'ReplicaDelta':
+            sql = 'INSERT INTO `replica_delta_updates` VALUES (?, ?, ?)'
+            cursor.execute(sql, (update_start, len(updated_replicas), len(deleted_replicas)))
+    
+        elif args.mode == 'ReplicaFull':
+            for site_name, dataset_name in site_dataset_combos:
+                tier = dataset_name[dataset_name.rfind('/') + 1:]
+                cursor.execute('DELETE FROM `replica_full_updates` WHERE `site` = ? AND `tier` = ?', (site_name, tier))
+    
+        state_db.commit()
+        state_db.close()
+
 
 LOG.info('Inventory update completed.')
