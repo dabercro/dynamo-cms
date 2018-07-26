@@ -91,8 +91,6 @@ phedex_deletion = PhEDExDeletionInterface()
 copy_history = CopyHistoryDatabase()
 deletion_history = DeletionHistoryDatabase()
 
-authorized = False
-
 if not authorized:
     rlfsm.set_read_only()
     phedex_copy.set_read_only()
@@ -124,8 +122,23 @@ for rid, opid, item_name, site_name, group_name in reservations_db.query('SELECT
             reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
         continue
 
+    replica = site.find_dataset_replica(dataset)
+    if replica is None:
+        # shouldn't happen but we allow it
+        replica = inventory.update(DatasetReplica(dataset, site))
+
     if block_name is None:
-        blocks = set(dataset.blocks)
+        if not replica.growing or replica.group is not group:
+            replica.growing = True
+            replica.group = group
+            inventory.register_update(replica)
+
+        blocks = set()
+        for block in dataset.blocks:
+            if block.find_replica(site) is None:
+                inventory.update(BlockReplica(block, site, group, size = 0))
+
+            blocks.add(block)
     else:
         block = dataset.find_block(block_name)
         if block is None:
@@ -134,9 +147,58 @@ for rid, opid, item_name, site_name, group_name in reservations_db.query('SELECT
                 reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
             continue
 
+        if block.find_replica(site) is None:
+            inventory.update(BlockReplica(block, site, group, size = 0))
+
         blocks = set([block])
 
-    transfer_reservations[(dataset, site)] = (blocks, group, rid, opid)
+    transfer_reservations[replica] = (blocks, group, rid, opid)
+
+deletion_reservations = {}
+
+for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `operation_id`, `item`, `site` FROM `phedex_deletion_reservations`'):
+    try:
+        dataset_name, block_name = Block.from_full_name(item_name)
+    except ObjectError:
+        dataset_name = item_name
+        block_name = None
+
+    try:
+        dataset = inventory.datasets[dataset_name]
+        site = inventory.sites[site_name]
+    except KeyError:
+        # shouldn't happen
+        if authorized:
+            reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
+        continue
+
+    replica = site.find_dataset_replica(dataset)
+    if replica is None:
+        # shouldn't happen but we allow it
+        replica = inventory.update(DatasetReplica(dataset, site))
+
+    if block_name is None:
+        blocks = set()
+        for block in dataset.blocks:
+            if block.find_replica(site) is None:
+                inventory.update(BlockReplica(block, site, group, size = 0))
+
+            blocks.add(block)
+    else:
+        block = dataset.find_block(block_name)
+        if block is None:
+            # shouldn't happen
+            if authorized:
+                reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
+            continue
+
+        if block.find_replica(site) is None:
+            inventory.update(BlockReplica(block, site, group, size = 0))
+
+        blocks = set([block])
+
+    deletion_reservations[replica] = (blocks, rid, opid)
+    
 
 if args.mode != 'NoPhEDEx':
     ## Start the update
@@ -263,7 +325,7 @@ if args.mode != 'NoPhEDEx':
     
     else:
         if args.sites:
-            site_dataset_combos = []
+            sites = []
             site_list = None
             for site_name in args.sites:
                 if site_name.startswith('!'):
@@ -271,9 +333,9 @@ if args.mode != 'NoPhEDEx':
                     site_pat = re.compile(fnmatch.translate(site_name[1:]))
     
                     ic = 0
-                    while ic != len(site_dataset_combos):
-                        if site_pat.match(site_dataset_combos[ic][0]):
-                            site_dataset_combos.pop(ic)
+                    while ic != len(sites):
+                        if site_pat.match(sites[ic]):
+                            sites.pop(ic)
                         else:
                             ic += 1
     
@@ -288,16 +350,21 @@ if args.mode != 'NoPhEDEx':
     
                     for site in site_list:
                         if site_pat.match(site.name):
-                            site_dataset_combos.append((site.name, None))
+                            sites.append(site.name)
     
                 else:
-                    site_dataset_combos.append((site_name, None))
+                    sites.append(site_name)
                         
         else:
-            site_dataset_combos = [(None, None)]
+            sites = [None]
     
         if args.datasets:
-            site_dataset_combos = [(c[0], d) for d in args.datasets for c in site_dataset_combos]
+            site_dataset_combos = [(c, d) for d in args.datasets for c in sites]
+        else:
+            # parallelize by tier (also tried splitting by acquisition era, but there are too many)
+            result = dataset_source._dbs.make_request('datatiers')
+            tiers = [entry['data_tier_name'] for entry in result if entry['data_tier_name'] not in ('DAVE', 'CRAP', 'DBS3_DEPLOYMENT_TEST_TIER')]
+            site_dataset_combos = [(c, '/*/*/%s' % tier) for tier in tiers for c in sites]
     
         def add_updated_replicas(site_name, dataset_name):
             return replica_source.get_replicas(site = site_name, dataset = dataset_name)
@@ -499,11 +566,6 @@ if args.mode != 'NoPhEDEx':
         if dataset_replica is None:
             dataset_replica = site.find_dataset_replica(dataset)
     
-            if (dataset, site) in transfer_reservations:
-                replica_reservation = transfer_reservations[(dataset, site)]
-            else:
-                replica_reservation = None
-    
         if dataset_replica is None:
             # If not found, create a new replica and inject
             LOG.info('Creating new replica of %s at %s', dataset.name, site.name)
@@ -521,14 +583,7 @@ if args.mode != 'NoPhEDEx':
         if block is None:
             LOG.error('Unknown block %s.', replica.block.full_name())
             continue
-    
-        if replica_reservation is not None:
-            # Something external already subscribed this block. Remove it from the reservation
-            try:
-                replica_reservation[0].remove(block)
-            except KeyError:
-                continue
-    
+   
         # 4.6. Update the block replica
     
         block_replica = block.find_replica(site)
@@ -546,10 +601,11 @@ if args.mode != 'NoPhEDEx':
     
             inventory.register_update(block_replica)
     
-        elif block_replica != replica:
-            LOG.debug('Updating %s', replica_str)
-            block_replica.copy(replica)
-            inventory.register_update(block_replica)
+        else:
+            if block_replica != replica:
+                LOG.debug('Updating %s', replica_str)
+                block_replica.copy(replica)
+                inventory.register_update(block_replica)
             
         if args.mode != 'ReplicaDelta':
             embedded_updated_replicas.add(block_replica)
@@ -616,14 +672,26 @@ if args.mode != 'NoPhEDEx':
             # If not found, create a new dataset and inject
             LOG.debug('Unknown dataset %s.', replica.block.dataset.name)
             continue
+
+        # 6.4. Find the dataset replica
+    
+        dataset_replica = site.find_dataset_replica(dataset)
+        if dataset_replica is None:
+            LOG.debug('No replica of %s at %s.', dataset.name, site.name)
+            continue
     
         # A reserved replica can appear in the deleted_replicas list if we are doing a full update
-        if (dataset, site) in transfer_reservations:
-            replica_reservation = transfer_reservations[(dataset, site)]
+        if dataset_replica in transfer_reservations:
+            transfer_reservation = transfer_reservations[dataset_replica]
         else:
-            replica_reservation = None
+            transfer_reservation = None
+
+        if dataset_replica in deletion_reservations:
+            deletion_reservation = deletion_reservations[dataset_replica]
+        else:
+            deletion_reservation = None
     
-        # 6.4. Find the block of the dataset
+        # 6.5. Find the block of the dataset
     
         block_full_name = replica.block.full_name()
         block = dataset.find_block(replica.block.name)
@@ -633,17 +701,14 @@ if args.mode != 'NoPhEDEx':
             LOG.debug('Unknown block %s.', block_full_name)
             continue
     
-        if replica_reservation is not None and block in replica_reservation[0]:
+        if transfer_reservation is not None and block in transfer_reservation[0]:
             # We don't delete this block rep from the inventory
             continue
-    
-        # 6.5. Find the dataset replica
-    
-        dataset_replica = site.find_dataset_replica(dataset)
-        if dataset_replica is None:
-            LOG.debug('No replica of %s at %s.', dataset.name, site.name)
+
+        if deletion_reservation is not None and block in deletion_reservation[0]:
+            # We don't delete this block rep from the inventory
             continue
-    
+   
         # 6.6. Delete the block replica
     
         # blockreplica.unlink_from() raises a KeyError or ObjectError if
@@ -700,13 +765,11 @@ if args.mode != 'NoPhEDEx':
 
 LOG.info('Collecting in-house transfers and deletions.')
 
-subscriptions = rlfsm.get_subscriptions(inventory, status = ['done', 'new', 'retry'])
+subscriptions = rlfsm.get_subscriptions(inventory, status = ['done', 'new', 'inbatch', 'retry', 'held'])
 
-completed_subscriptions = {}
-transferred_files = {}
+done_subscriptions = {}
+done_desubscriptions = {}
 subscribed_files = {}
-completed_desubscriptions = {}
-deleted_files = {}
 desubscribed_files = {}
 
 for sub in subscriptions:
@@ -715,64 +778,62 @@ for sub in subscriptions:
 
         if sub.status == 'done':
             try:
-                completed_subscriptions[key].append(sub.id)
-                transferred_files[key].append(sub.file.id)
+                done_subscriptions[key].append(sub)
             except KeyError:
-                completed_subscriptions[key] = [sub.id]
-                transferred_files[key] = [sub.file.id]
+                done_subscriptions[key] = [sub]
 
         try:
             subscribed_files[key].append(sub.file.id)
         except KeyError:
             subscribed_files[key] = [sub.file.id]
+
     else:
         key = (sub.file.block, sub.site)
 
         if sub.status == 'done':
             try:
-                completed_desubscriptions[key].append(sub.id)
-                deleted_files[key].append(sub.file.id)
+                done_desubscriptions[key].append(sub)
             except KeyError:
-                completed_desubscriptions[key] = [sub.id]
-                deleted_files[key] = [sub.file.id]
+                done_desubscriptions[key] = [sub]
 
         try:
             desubscribed_files[key].append(sub.file.id)
         except KeyError:
             desubscribed_files[key] = [sub.file.id]
 
-for key, file_ids in transferred_files.iteritems():
+completed_subscriptions = {}
+
+for key, subs in done_subscriptions.iteritems():
     block, site = key
     replica = block.find_replica(site)
 
-    if replica is None:
-        # replica doesn't exist yet
-        if set(f.id for f in block.files) != set(file_ids):
-            # and it's not complete yet
-            completed_subscriptions.pop(key)
-
-    elif replica.file_ids is None:
+    # replica must exist
+    if replica.file_ids is None:
         # is already full
         pass
 
     else:
+        file_ids = [sub.file.id for sub in subs]
         file_ids.extend(replica.file_ids)
         if set(f.id for f in block.files) != set(file_ids):
-            completed_subscriptions.pop(key)
+            # block replica is not complete
+            continue
 
-for key, file_ids in deleted_files.iteritems():
+    completed_subscriptions[key] = [sub.id for sub in subs]
+
+completed_desubscriptions = {}
+
+for key, subs in done_desubscriptions.iteritems():
     block, site = key
     replica = block.find_replica(site)
 
-    if replica is None:
-        # didn't even exist to begin with
-        pass
-    elif replica.file_ids is None:
-        if set(f.id for f in block.files) != set(file_ids):
-            completed_desubscriptions.pop(key)
+    if replica.file_ids is None:
+        file_ids = set(f.id for f in block.files)
     else:
-        if set(replica.file_ids) > set(file_ids):
-            completed_desubscriptions.pop(key)
+        file_ids = set(replica.file_ids)
+
+    if set(sub.file.id for sub in subs) >= file_ids:
+        completed_desubscriptions[key] = [sub.id for sub in subs]
 
 # Completed_subscriptions and completed_desubscriptions now contain (block, site) => [subscription ids] of (de)subscriptions
 # that are ready to be reported to PhEDEx
@@ -782,9 +843,12 @@ done_subscription_ids = []
 # First deal with copies
 
 done_transfer_reservation_ids = []
-copy_replica_list = {} # {operation id: [datasetreplica]}
+copy_replica_list = {} # {operation id: [datasetreplica]} dataset replica is a clone
 
-for (dataset, site), (blocks, group, rid, opid) in transfer_reservations.iteritems():
+for dataset_replica, (blocks, group, rid, opid) in transfer_reservations.iteritems():
+    dataset = dataset_replica.dataset
+    site = dataset_replica.site
+
     dataset_done_ids = []
     for block in blocks:
         try:
@@ -796,6 +860,10 @@ for (dataset, site), (blocks, group, rid, opid) in transfer_reservations.iterite
         # All blocks completed
         done_subscription_ids.extend(dataset_done_ids)
         done_transfer_reservation_ids.append(rid)
+
+        # Remove the list of files from done_subscriptions -> remaining files in the list are non-reserved and should be used to simply update the inventory
+        for block in blocks:
+            done_subscriptions.pop((block, site))
 
         if opid not in copy_replica_list:
             copy_replica_list[opid] = []
@@ -821,7 +889,7 @@ for (dataset, site), (blocks, group, rid, opid) in transfer_reservations.iterite
 
         continue
 
-    # Check that we have all necessary file subscriptions to complete this reservation eventually
+    # Reservation is not complete - check that we have all necessary file subscriptions to complete this reservation eventually
     for block in blocks:
         n = 0
         try:
@@ -837,50 +905,16 @@ for (dataset, site), (blocks, group, rid, opid) in transfer_reservations.iterite
                     rlfsm.subscribe_file(site, lfile)
 
         if n != 0:
-            LOG.warning('Recovered %d file subscriptions for %s at %s', n, block.full_name(), site.name)
+            LOG.info('Created %d file subscriptions for %s at %s', n, block.full_name(), site.name)
             
 # Then deal with deletions
 
 done_deletion_reservation_ids = []
 deletion_replica_list = {} # {operation id: {datasetreplica: [blockreplicas]}}
 
-for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `operation_id`, `item`, `site` FROM `phedex_deletion_reservations`'):
-    try:
-        dataset_name, block_name = Block.from_full_name(item_name)
-    except ObjectError:
-        dataset_name = item_name
-        block_name = None
-
-    try:
-        dataset = inventory.datasets[dataset_name]
-        site = inventory.sites[site_name]
-    except KeyError:
-        # shouldn't happen
-        if authorized:
-            reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
-        continue
-
-    replica = site.find_dataset_replica(dataset)
-    if replica is None:
-        # already gone
-        if authorized:
-            reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
-        continue
-
-    if block_name is None:
-        blocks = dataset.blocks
-        block_replica = None
-
-    else:
-        block = dataset.find_block(block_name)
-        if block is None:
-            # shouldn't happen
-            if authorized:
-                reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
-            continue
-
-        blocks = [block]
-        block_replica = block.find_replica(site)
+for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
+    dataset = dataset_replica.dataset
+    site = dataset_replica.site
 
     dataset_done_ids = []
     for block in blocks:
@@ -894,15 +928,18 @@ for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `oper
         done_subscription_ids.extend(dataset_done_ids)
         done_deletion_reservation_ids.append(rid)
 
+        for block in blocks:
+            done_desubscriptions.pop((block, site))
+
         if opid not in deletion_replica_list:
             deletion_replica_list[opid] = {}
 
-        if block_replica is None:
-            deletion_replica_list[opid][replica] = None
-        elif replica not in deletion_replica_list[opid]:
-            deletion_replica_list[opid][replica] = [block_replica]
-        elif deletion_replica_list[opid][replica] is not None:
-            deletion_replica_list[opid][replica].append(block_replica)
+        if blocks == dataset.blocks:
+            deletion_replica_list[opid][dataset_replica] = None
+        elif dataset_replica not in deletion_replica_list[opid]:
+            deletion_replica_list[opid][dataset_replica] = [BlockReplica(block, site, Group.null_group) for block in blocks]
+        elif deletion_replica_list[opid][dataset_replica] is not None:
+            deletion_replica_list[opid][dataset_replica].extend(BlockReplica(block, site, Group.null_group) for block in blocks)
 
         continue
 
@@ -957,6 +994,45 @@ for opid, replicas in deletion_replica_list.iteritems():
 if authorized:
     reservations_db.delete_many('phedex_transfer_reservations', 'id', done_transfer_reservation_ids)
     reservations_db.delete_many('phedex_deletion_reservations', 'id', done_deletion_reservation_ids)
+
+for (block, site), subs in done_subscriptions.iteritems():
+    replica = block.find_replica(site)
+
+    done_subscription_ids.extend(sub.id for sub in subs)
+
+    if replica.file_ids is None:
+        continue
+
+    file_ids = set(replica.file_ids)
+    file_ids.update(sub.file.id for sub in subs)
+
+    if file_ids == set(f.id for f in block.files):
+        replica.size = block.size
+        replica.file_ids = None
+    else:
+        replica.size = sum(f.size for f in block.files if f.id in file_ids)
+        replica.file_ids = tuple(file_ids)
+
+    inventory.register_update(replica)
+
+for (block, site), subs in done_desubscriptions.iteritems():
+    replica = block.find_replica(site)
+
+    done_subscription_ids.extend(sub.id for sub in subs)
+
+    if replica.file_ids is None:
+        file_ids = set(f.id for f in block.files)
+    else:
+        file_ids = set(replica.file_ids)
+
+    file_ids -= set(sub.file.id for sub in subs)
+
+    if len(file_ids) == 0:
+        inventory.delete(replica)
+    else:
+        replica.file_ids = tuple(file_ids)
+        replica.size -= sum(f.size for f in block.files if f.id in file_ids)
+        inventory.register_update(replica)
 
 # Remove subscription entries with status 'done'
 # This is dangerous though - if inventory update fails on the server side for some reason,
