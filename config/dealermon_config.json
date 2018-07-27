@@ -2,10 +2,6 @@
   "partitions": ["AnalysisOps", "Physics"],
   "rrd_path_base": "/var/spool/dynamo/dealermon",
   "rrd_interval": 900,
-  "copy": {
-    "module": "phedexcopy:PhEDExCopyInterface",
-    "config": null
-  },
   "parallel": {
     "num_threads": 32,
     "print_progress": true,
