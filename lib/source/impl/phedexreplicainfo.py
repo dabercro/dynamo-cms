@@ -96,16 +96,23 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         combine_file = parallelizer.get_starter(self._combine_file_info)
 
         for block_entry in block_entries:
-            if block_entry['replica'][0]['complete'] == 'n':
-                try:
-                    dataset_name, block_name = Block.from_full_name(block_entry['name'])
-                except ObjectError: # invalid name
-                    continue
-    
-                if dataset_check and not dataset_check(dataset_name):
-                    continue
+            # if "site" contains wildcard, we can have multiple replicas per block
+            for replica_entry in block_entry['replica']:
+                if replica_entry['complete'] == 'n':
+                    break
+            else:
+                continue
 
-                combine_file.add_input(block_entry)
+            # there is at least one incomplete replica
+            try:
+                dataset_name, block_name = Block.from_full_name(block_entry['name'])
+            except ObjectError: # invalid name
+                continue
+
+            if dataset_check and not dataset_check(dataset_name):
+                continue
+
+            combine_file.add_input(block_entry)
 
         combine_file.close()
 
@@ -284,8 +291,8 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
     def _combine_file_info(self, block_entry):
         try:
-            LOG.debug('_combine_file_info(%s, %s) Fetching file replicas from PhEDEx', block_entry['name'], block_entry['replica'][0]['node'])
-            file_info = self._phedex.make_request('filereplicas', ['block=%s' % block_entry['name'], 'node=%s' % block_entry['replica'][0]['node']])[0]['file']
+            LOG.debug('_combine_file_info(%s) Fetching file replicas from PhEDEx', block_entry['name'])
+            file_info = self._phedex.make_request('filereplicas', ['block=%s' % block_entry['name']])[0]['file']
         except (IndexError, KeyError):
             # Somehow PhEDEx didn't have a filereplicas entry for this block at this node
             block_entry['file'] = []
