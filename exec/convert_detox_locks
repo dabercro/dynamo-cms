@@ -30,6 +30,7 @@ LOG = make_standard_logger(config.log_level)
 from dynamo.policy.producers.weblock import WebReplicaLock
 from dynamo.core.executable import inventory, authorizer
 from dynamo.registry.registry import RegistryDatabase
+from dynamo.history.history import HistoryDatabase
 
 LOG.info('Translating web-based replica locks into DB-based locks.')
 
@@ -38,6 +39,12 @@ comment = 'Auto-produced by dynamo'
 
 # The registry object
 registry = RegistryDatabase()
+# The history object
+history = HistoryDatabase()
+
+if not authorized:
+    registry.set_read_only()
+    history.set_read_only()
 
 if authorized:
     while True:
@@ -50,8 +57,6 @@ if authorized:
         time.sleep(60)
 
 try:
-    registry.db.lock_tables(write = ['detox_locks'], read = ['user_services'])
-
     # we process one source at a time, because each source registers mysql locks as a different user
     for name, source_conf in config.sources.items():
         try:
@@ -59,15 +64,14 @@ try:
         except IndexError:
             raise RuntimeError('Unknown service %s' % source_conf.service)
 
+        user_info = authorizer.identify_user(name = source_conf.user)
+        if user_info is None:
+            raise RuntimeError('Unknown user %s' % source_conf.user)
+
+        dn = user_info[2]
+
         LOG.info('Translating ' + name)
-
-        existing_lock_ids = {}
-        sql = 'SELECT `id`, `item`, `sites` FROM `detox_locks` WHERE `user` = %s AND `service_id` = %s AND `unlock_date` IS NULL'
-        for lid, item, site in registry.db.xquery(sql, source_conf.user, service_id):
-            existing_lock_ids[(item, site)] = lid
-
-        existing_locks = set(existing_lock_ids.iterkeys())
-    
+  
         instance_conf = Configuration(sources = {name: source_conf.clone()}, auth = config.auth)
         weblock = WebReplicaLock(instance_conf)
 
@@ -85,27 +89,44 @@ try:
 
         num_locked = 0
 
-        # lock new appearences
-        for item, site in loaded_locks - existing_locks:
-            sql = 'INSERT INTO `detox_locks` (`item`, `sites`, `lock_date`, `expiration_date`, `user`, `service_id`, `comment`)'
-            sql += ' VALUES (%s, %s, NOW(), %s, %s, %s, \'Auto-produced by dynamo\')'
-            if authorized:
-                registry.db.query(sql, item, site, expiry, source_conf.user, service_id)
+        registry.db.lock_tables(write = ['detox_locks'], read = ['user_services'])
 
-            num_locked += 1
+        try:
+            existing_lock_ids = {}
+            sql = 'SELECT `id`, `item`, `sites` FROM `detox_locks` WHERE `user` = %s AND `service_id` = %s'
+            for lid, item, site in registry.db.xquery(sql, source_conf.user, service_id):
+                existing_lock_ids[(item, site)] = lid
+    
+            existing_locks = set(existing_lock_ids.iterkeys())
+    
+            # lock new appearences
+            for item, site in loaded_locks - existing_locks:
+                sql = 'INSERT INTO `detox_locks` (`item`, `sites`, `lock_date`, `expiration_date`, `user`, `dn`, `service_id`, `comment`)'
+                sql += ' VALUES (%s, %s, NOW(), %s, %s, %s, %s, \'Auto-produced by dynamo\')'
+                if authorized:
+                    registry.db.query(sql, item, site, expiry, source_conf.user, dn, service_id)
+    
+                num_locked += 1
+
+        finally:
+            registry.db.unlock_tables()
 
         num_unlocked = 0
 
+        history_user_id = history.save_users([(source_conf.user, dn)], get_ids = True)[0]
+        history_service_id = history.save_user_services([source_conf.service], get_ids = True)[0]
+
         # unlock excess
         for item, site in existing_locks - loaded_locks:
+            sql = 'INSERT INTO `detox_locks` (`id`, `item`, `sites`, `groups`, `lock_date`, `unlock_date`, `expiration_date`, `user_id`, `service_id`, `comment`)'
+            sql += ' SELECT `id`, `item`, `sites`, `groups`, `lock_date`, NOW(), `expiration_date`, %s, %s, `comment` FROM `dynamoregister`.`detox_locks` WHERE `id` = %s'
             if authorized:
-                registry.db.query('UPDATE `detox_locks` SET `unlock_date` = NOW() WHERE `id` = %s', existing_lock_ids[(item, site)])
+                history.db.query(sql, history_user_id, history_service_id, existing_lock_ids[(item, site)])
+                registry.db.query('DELETE FROM `detox_locks` WHERE `id` = %s', existing_lock_ids[(item, site)])
 
             num_unlocked += 1
     
         LOG.info('Locked: %d, Unlocked: %d', num_locked, num_unlocked)
-
-    registry.db.unlock_tables()
 
 finally:
     if authorized:

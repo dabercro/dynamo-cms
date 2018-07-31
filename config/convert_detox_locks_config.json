@@ -29,7 +29,7 @@
       "url": "https://cmsweb.cern.ch/t0wmadatasvc/prod/dataset_locked",
       "auth": "cert",
       "content_type": "CMSWEB_LIST_OF_DATASETS",
-      "sites": "T0_CH_CERN_Disk"
+      "sites": "T2_CH_CERN"
     }
   },
   "auth": {
