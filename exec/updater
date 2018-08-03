@@ -171,7 +171,7 @@ for rid, opid, item_name, site_name, group_name in transfer_reservation_entries:
         if block is None:
             # shouldn't happen
             if authorized:
-                reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
+                reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
             continue
 
         if block.find_replica(site) is None:
@@ -964,6 +964,10 @@ for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
 
     dataset_done_ids = []
     for block in blocks:
+        replica = block.find_replica(site)
+        if replica is None or (replica.file_ids is not None and len(replica.file_ids) == 0):
+            continue
+
         try:
             dataset_done_ids.extend(completed_desubscriptions[(block, site)])
         except KeyError:
@@ -1015,7 +1019,6 @@ for dataset_replica, (blocks, rid, opid) in deletion_reservations.iteritems():
             LOG.warning('Recovered %d file desubscriptions for %s at %s', n, block.full_name(), site.name)
 
 # Execute on PhEDEx
-
 for opid, replicas in copy_replica_list.iteritems():
     scheduled_replicas = phedex_copy.schedule_copies(replicas, opid)
 
