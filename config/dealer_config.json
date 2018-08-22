@@ -36,11 +36,11 @@
         }
       },
       "balancer": {
-        "priority": 8,
+        "priority": 3,
         "module": "balancer:BalancingHandler",
         "config": {
-          "max_dataset_size": 50.0,
-          "max_cycle_volume": 5.0,
+          "max_dataset_size": 75.0,
+          "max_cycle_volume": 35.0,
           "target_reasons": {
             "dataset.name == /*/*/MINIAOD* and replica.num_full_other_copy_common_owner < 2": 2,
             "replica.num_full_other_copy_common_owner == 0": 1
@@ -58,10 +58,30 @@
     "attrs": {
       "GlobalQueueRequestHistory": null
     },
-    "target_sites": ["T0_*", "T1_*", "T2_*"],
+    "target_sites": ["T1_*_Disk", "T2_*", "!T2_IN_TIFR", "!T2_HU_Budapest", "!T2_GR_Ioannina", "!T2_UA_KIPT", "!T2_US_Caltech"],
     "target_site_occupancy": 0.93,
     "max_site_pending_fraction": 0.03,
-    "max_total_cycle_volume": 200
+    "max_total_cycle_volume": 200,
+    "copy_op": [
+      [
+	 "site.name in [T2_US_MIT]",	  
+	 {
+	    "module" : "rlfsmphedexcopy:RLFSMPhEDExReserveCopyInterface",
+	    "config" : {
+	       "reserve_db_params": {
+               "db":      "dynamo"
+	       }	     		
+	    }	     
+	 }
+      ],
+      [
+	 "site.name notin [T2_US_MIT]",
+	 {
+	    "module" : "phedexcopy:PhEDExCopyInterface",
+	    "config" : {}
+	 }
+      ]
+    ]
   },
   "log_level": "info"
 }
