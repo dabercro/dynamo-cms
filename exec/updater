@@ -130,7 +130,7 @@ subscription_results = Map().execute(find_subscription, transfer_reservation_ent
 existing_subscriptions = set((item_name, site_name) for item_name, site_name, exists in subscription_results if exists)
 
 # Pre-fetch the list of reserved transfers before we deal with deletions
-transfer_reservations = {} # {(dataset, site): (set(blocks), group, reservation id, operation id)}
+transfer_reservations = {} # {dataset_replica: (set(blocks), group, reservation id, operation id)}
 
 for rid, opid, item_name, site_name, group_name in transfer_reservation_entries:
     try:
@@ -191,9 +191,12 @@ for rid, opid, item_name, site_name, group_name in transfer_reservation_entries:
 
     transfer_reservations[replica] = (blocks, group, rid, opid)
 
+# Now for the deletions
+deletion_reservation_entries = reservations_db.query('SELECT `id`, `operation_id`, `item`, `site` FROM `phedex_deletion_reservations`')
+
 deletion_reservations = {}
 
-for rid, opid, item_name, site_name in reservations_db.query('SELECT `id`, `operation_id`, `item`, `site` FROM `phedex_deletion_reservations`'):
+for rid, opid, item_name, site_name in deletion_reservation_entries:
     try:
         dataset_name, block_name = Block.from_full_name(item_name)
     except ObjectError:
@@ -539,12 +542,38 @@ if args.mode != 'NoPhEDEx':
         # 3.6. Delete excess blocks
     
         for block_name in (set(existing_blocks.iterkeys()) - block_names_in_source):
-            LOG.debug('Deleting block %s', block_name)
-            try:
-                inventory.delete(existing_blocks[block_name])
-            except:
-                print existing_blocks[block_name].full_name()
-                raise
+            LOG.debug('Deleting block %s', Block.to_full_name(dataset.name, Block.to_real_name(block_name)))
+            inventory.delete(existing_blocks[block_name])
+
+            # take this block out of reservations
+            block = existing_blocks[block_name]
+            block_full_name = block.full_name()
+
+            for replica, reservation in transfer_reservations.iteritems():
+                if replica.dataset is not block.dataset:
+                    continue
+                try:
+                    reservation[0].remove(block)
+                except KeyError:
+                    pass
+
+            for rid, opid, item_name, site_name, group_name in transfer_reservation_entries:
+                if item_name == block_full_name:
+                    if authorized:
+                        reservations_db.query('DELETE FROM `phedex_transfer_reservations` WHERE `id` = %s', rid)
+
+            for replica, reservation in deletion_reservations.iteritems():
+                if replica.dataset is not block.dataset:
+                    continue
+                try:
+                    reservation[0].remove(block)
+                except KeyError:
+                    pass
+
+            for rid, opid, item_name, site_name, group_name in deletion_reservation_entries:
+                if item_name == block_full_name:
+                    if authorized:
+                        reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
     
     LOG.info('100% done.')
     
@@ -826,7 +855,7 @@ for key, subs in done_subscriptions.iteritems():
     block, site = key
     replica = block.find_replica(site)
 
-    # replica must exist
+    # replica must exist (guaranteed by RLFSM)
     if replica.file_ids is None:
         # is already full
         pass
