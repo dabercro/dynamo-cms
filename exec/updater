@@ -32,6 +32,7 @@ from dynamo.operation.impl.phedexcopy import PhEDExCopyInterface
 from dynamo.operation.impl.phedexdeletion import PhEDExDeletionInterface
 from dynamo.operation.history import DeletionHistoryDatabase, CopyHistoryDatabase
 from dynamo.fileop.rlfsm import RLFSM
+from dynamo.registry.registry import RegistryDatabase
 from dynamo.utils.interface.mysql import MySQL
 from dynamo.utils.interface.phedex import PhEDEx
 from dynamo.utils.parallel import Map
@@ -99,6 +100,9 @@ if not authorized:
     phedex_deletion.set_read_only()
     copy_history.set_read_only()
     deletion_history.set_read_only()
+
+# For local invalidation noticies
+registry = RegistryDatabase()
 
 ## Reservations DB (keeping track of in-house operations we did)
 
@@ -1128,6 +1132,21 @@ for (block, site), subs in done_desubscriptions.iteritems():
         replica.size -= sum(sub.file.size for sub in subs)
         replica.file_ids = tuple(file_ids)
         inventory.register_update(replica)
+
+# Make subscriptions for locally invalidated files
+
+processed_ids = []
+for inv_id, site_name, lfn in registry.db.query('SELECT `id`, `site`, `lfn` FROM `local_invalidations`'):
+    processed_ids.append(inv_id)
+
+    site = inventory.sites[site_name]
+    lfile = inventory.find_file(lfn)
+
+    if site is not None and lfile is not None:
+        rlfsm.subscribe_file(site, lfile)
+
+if authorized:
+    registry.db.delete_many('local_invalidations', 'id', processed_ids)
 
 # Make changes to the local databases
 # This is dangerous though - if inventory update fails on the server side for some reason,
