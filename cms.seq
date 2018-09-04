@@ -10,6 +10,7 @@
 {fom} = $(DYNAMO_BASE)/exec/fom
 <track_requests> = $(DYNAMO_BASE)/exec/track_requests
 {siteinfo} = $(DYNAMO_BASE)/exec/siteinfo
+<enter_stucktransfers> = $(DYNAMO_BASE)/exec/enter_stucktransfers
 
 [SEQUENCE delta_update]
 & <updater> --config /etc/dynamo/updater_config.json --mode ReplicaDelta
@@ -71,3 +72,7 @@ WAIT 60
 [SEQUENCE queuemanager]
 | <track_requests> --config /etc/dynamo/track_requests_config.json
 WAIT 120
+
+[SEQUENCE stuck_transfers]
+| <enter_stucktransfers> --config /etc/dynamo/stuck_transfers.json
+WAIT 43200
