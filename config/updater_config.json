@@ -13,5 +13,13 @@
   "reservations_db_params": {
     "db": "dynamo"
   },
-  "log_level": "info"
+  "log_level": "info",
+  "replicas": {
+    "parallel": {
+        "num_threads": 8,
+        "task_per_thread": 30,
+        "print_progress": true,
+        "timeout": 12000
+    }
+  }
 }
