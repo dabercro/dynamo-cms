@@ -26,7 +26,7 @@
     "t0_prod": {
       "user": "dmytro",
       "service": "t0-prod",
-      "url": "https://cmsweb.cern.ch/t0wmadatasvc/prod/dataset_locked",
+      "url": "http://t3serv001.mit.edu/~cmsprod/T0/dataset_locked",
       "auth": "cert",
       "content_type": "CMSWEB_LIST_OF_DATASETS",
       "sites": "T2_CH_CERN"
