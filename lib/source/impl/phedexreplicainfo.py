@@ -20,6 +20,7 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         ReplicaInfoSource.__init__(self, config)
 
         self._phedex = PhEDEx(config.get('phedex', None))
+	self._parallelizer_config = config
 
     def replica_exists_at_site(self, site, item): #override
         options = ['node=' + site.name]
@@ -87,10 +88,10 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         if len(options) == 0:
             return []
         
-        block_entries = self._phedex.make_request('blockreplicas', options, timeout = 3600)
+        block_entries = self._phedex.make_request('blockreplicas', options, timeout = 7200)
 
         parallelizer = Map()
-        parallelizer.timeout = 3600
+        parallelizer.timeout = 7200
 
         # Automatically starts a thread as we add the output of block_entries
         combine_file = parallelizer.get_starter(self._combine_file_info)
@@ -219,12 +220,19 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
             nodes.append(entry['name'])
 
-        parallelizer = Map()
-        parallelizer.timeout = 3600
+        try:
+            tmpconfig = Configuration(self._parallelizer_config.get('parallel', None))
+        except Exception as e:
+	    LOG.error(str(e))
+            tmpconfig = Configuration()
+
+	parallelizer = Map(tmpconfig)
+        parallelizer.timeout = 5400
 
         def get_node_replicas(node):
             options = ['update_since=%d' % updated_since, 'node=%s' % node]
             results = self._phedex.make_request('blockreplicas', options)
+
             return node, results
 
         # Use async to fire threads on demand
@@ -275,6 +283,8 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
         # _combine_file_info alters block_entries directly - no need to deal with output
         combine_file.get_outputs()
+
+        LOG.info('get_updated_replicas(%d) Got outputs' % updated_since)
 
         return PhEDExReplicaInfoSource.make_block_replicas(all_block_entries, PhEDExReplicaInfoSource.maker_blockreplicas, dataset_check = self.check_allowed_dataset)
 

@@ -800,9 +800,16 @@ if args.mode != 'NoPhEDEx':
         for replica in dataset.replicas:
             if len(replica.block_replicas) == len(dataset.blocks):
                 if not replica.growing:
-                    replica.growing = True
-                    replica.group = list(replica.block_replicas)[0].group
-                    inventory.register_update(replica)
+                    all_blocks_subscribed = True
+                    for br in replica.block_replicas:
+                        if br.group is Group.null_group:
+                            all_blocks_subscribed = False
+                            break
+
+                    if all_blocks_subscribed:
+                        replica.growing = True
+                        replica.group = list(replica.block_replicas)[0].group
+                        inventory.register_update(replica)
             else:
                 if replica.growing:
                     replica.growing = False
