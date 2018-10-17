@@ -262,7 +262,7 @@ if args.mode != 'NoPhEDEx':
     
     LOG.info('Updating list of groups.')
     for group in group_source.get_group_list():
-        LOG.debug('Updating %s', str(group))
+        LOG.info('Updating %s', str(group))
         inventory.update(group)
     
     ## 2. Get the list of block replicas and dataset names to update
@@ -314,6 +314,8 @@ if args.mode != 'NoPhEDEx':
         updated_replicas = replica_source.get_updated_replicas(last_update, inventory)
     
         thr.join()
+
+        LOG.info("Deletion list complete with %s entries." % str(len(deleted_replicas)))
     
         # Sometimes when a subscription is made but is removed before any transfer happens, PhEDEx "deletions" call
         # returns nothing and the empty subscription stays in the inventory, inflating the projected volume at the site.
@@ -335,7 +337,7 @@ if args.mode != 'NoPhEDEx':
             
         # Names of all the datasets to update
         dataset_names = set(br.block.dataset.name for br in updated_replicas)
-    
+
     elif args.mode == 'ReplicaFull':
         ## Round-robin update of a site-tier combination
         ## Get the combination to run on
@@ -420,7 +422,7 @@ if args.mode != 'NoPhEDEx':
             updated_replicas.extend(replica_list)
     
         dataset_names = set(br.block.dataset.name for br in updated_replicas)
-    
+
     # 3. Update the datasets
     
     # 3.1. Query the dataset source (parallelize)
@@ -440,14 +442,14 @@ if args.mode != 'NoPhEDEx':
     dataset_tmps = parallelizer.execute(get_dataset, dataset_names, async = True)
     
     def create_file(file_tmp, block):
-        LOG.debug('Creating new file %s', file_tmp.lfn)
+        LOG.info('Creating new file %s', file_tmp.lfn)
         lfile = File(file_tmp.lfn, block)
         lfile.copy(file_tmp)
         block.add_file(lfile)
         inventory.register_update(lfile)
     
     def create_block(block_tmp, dataset):
-        LOG.debug('Creating new block %s', block_tmp.full_name())
+        LOG.info('Creating new block %s', block_tmp.full_name())
         block = Block(block_tmp.name, dataset)
         block.copy(block_tmp)
         dataset.blocks.add(block)
@@ -458,7 +460,7 @@ if args.mode != 'NoPhEDEx':
             create_file(file_tmp, block)
     
     def create_dataset(dataset_tmp):
-        LOG.debug('Creating new dataset %s', dataset_tmp.name)
+        LOG.info('Creating new dataset %s', dataset_tmp.name)
         dataset = Dataset(dataset_tmp.name)
         dataset.copy(dataset_tmp)
         inventory.datasets.add(dataset)
@@ -490,7 +492,7 @@ if args.mode != 'NoPhEDEx':
             continue
     
         if dataset != dataset_tmp:
-            LOG.debug('Updating dataset %s', dataset.name)
+            LOG.info('Updating dataset %s', dataset.name)
             dataset.copy(dataset_tmp)
             inventory.register_update(dataset)
     
@@ -513,7 +515,7 @@ if args.mode != 'NoPhEDEx':
                 # We skip the file update.
                 continue
             else:
-                LOG.debug('Updating block %s', block.full_name())
+                LOG.info('Updating block %s', block.full_name())
                 block.copy(block_tmp)
                 inventory.register_update(block)
     
@@ -533,20 +535,20 @@ if args.mode != 'NoPhEDEx':
                     continue
     
                 if lfile != file_tmp:
-                    LOG.debug('Updating file %s', lfile.lfn)
+                    LOG.info('Updating file %s', lfile.lfn)
                     lfile.copy(file_tmp)
                     inventory.register_update(lfile)
     
             # 3.5. Delete excess files
     
             for lfn in (set(existing_files.iterkeys()) - file_names_in_source):
-                LOG.debug('Deleting file %s', lfn)
+                LOG.info('Deleting file %s', lfn)
                 inventory.delete(existing_files[lfn])
     
         # 3.6. Delete excess blocks
     
         for block_name in (set(existing_blocks.iterkeys()) - block_names_in_source):
-            LOG.debug('Deleting block %s', Block.to_full_name(dataset.name, Block.to_real_name(block_name)))
+            LOG.info('Deleting block %s', Block.to_full_name(dataset.name, Block.to_real_name(block_name)))
             inventory.delete(existing_blocks[block_name])
 
             # take this block out of reservations
@@ -579,8 +581,6 @@ if args.mode != 'NoPhEDEx':
                     if authorized:
                         reservations_db.query('DELETE FROM `phedex_deletion_reservations` WHERE `id` = %s', rid)
     
-    LOG.info('100% done.')
-    
     ## 4. Loop over new and changed block replicas, add them to inventory
     
     num_replicas = len(updated_replicas)
@@ -598,15 +598,13 @@ if args.mode != 'NoPhEDEx':
     for replica in updated_replicas:
         replica_str = str(replica)
     
-        LOG.debug('Checking %s', replica_str)
-    
         # 4.1. Pick up replicas of known groups only
     
         if group is None or group.name != replica.group.name:
             try:
                 group = inventory.groups[replica.group.name]
             except KeyError:
-                LOG.debug('%s is owned by %s, which is not a tracked group.', replica_str, replica.group.name)
+                LOG.info('%s is owned by %s, which is not a tracked group.', replica_str, replica.group.name)
                 continue
     
         # 4.2. Pick up replicas at known sites only
@@ -615,7 +613,7 @@ if args.mode != 'NoPhEDEx':
             try:
                 site = inventory.sites[replica.site.name]
             except KeyError:
-                LOG.debug('%s is at %s, which is not a tracked site.', replica_str, replica.site.name)
+                LOG.info('%s is at %s, which is not a tracked site.', replica_str, replica.site.name)
                 continue
     
             dataset_replica = None
@@ -659,7 +657,7 @@ if args.mode != 'NoPhEDEx':
         block_replica = block.find_replica(site)
     
         if block_replica is None:
-            LOG.debug('Creating new replica of %s at %s', block.full_name(), site.name)
+            LOG.info('Creating new replica of %s at %s', block.full_name(), site.name)
             block_replica = BlockReplica(block, site, group)
             block_replica.copy(replica)
             # reset the group
@@ -673,7 +671,7 @@ if args.mode != 'NoPhEDEx':
     
         else:
             if block_replica != replica:
-                LOG.debug('Updating %s', replica_str)
+                LOG.info('Updating %s', replica_str)
                 block_replica.copy(replica)
                 inventory.register_update(block_replica)
             
@@ -718,12 +716,12 @@ if args.mode != 'NoPhEDEx':
     for replica in deleted_replicas:
         replica_str = str(replica)
     
-        LOG.debug('Deleting %s', replica_str)
+        LOG.info('Deleting block_replica %s', replica_str)
     
         # 6.1. Pick up replicas of known groups only
     
         if replica.group.name not in inventory.groups:
-            LOG.debug('%s is owned by %s, which is not a tracked group.', replica_str, replica.group.name)
+            LOG.info('%s is owned by %s, which is not a tracked group.', replica_str, replica.group.name)
             continue
     
         # 6.2. Pick up replicas at known sites only
@@ -731,7 +729,7 @@ if args.mode != 'NoPhEDEx':
         try:
             site = inventory.sites[replica.site.name]
         except KeyError:
-            LOG.debug('%s is at %s, which is not a tracked site.', replica_str, replica.site.name)
+            LOG.info('%s is at %s, which is not a tracked site.', replica_str, replica.site.name)
             continue
     
         # 6.3. Find the dataset in the inventory
@@ -740,14 +738,14 @@ if args.mode != 'NoPhEDEx':
             dataset = inventory.datasets[replica.block.dataset.name]
         except KeyError:
             # If not found, create a new dataset and inject
-            LOG.debug('Unknown dataset %s.', replica.block.dataset.name)
+            LOG.info('Unknown dataset %s.', replica.block.dataset.name)
             continue
 
         # 6.4. Find the dataset replica
     
         dataset_replica = site.find_dataset_replica(dataset)
         if dataset_replica is None:
-            LOG.debug('No replica of %s at %s.', dataset.name, site.name)
+            LOG.info('No replica of %s at %s.', dataset.name, site.name)
             continue
     
         # A reserved replica can appear in the deleted_replicas list if we are doing a full update
@@ -768,15 +766,17 @@ if args.mode != 'NoPhEDEx':
     
         if block is None:
             # If not found, create a new block and inject
-            LOG.debug('Unknown block %s.', block_full_name)
+            LOG.info('Unknown block %s.', block_full_name)
             continue
     
         if transfer_reservation is not None and block in transfer_reservation[0]:
             # We don't delete this block rep from the inventory
+            LOG.info('Reserve transfer %s.', block_full_name)
             continue
 
         if deletion_reservation is not None and block in deletion_reservation[0]:
             # We don't delete this block rep from the inventory
+            LOG.info('Reserve deletion %s.', block_full_name)
             continue
    
         # 6.6. Delete the block replica
@@ -787,8 +787,14 @@ if args.mode != 'NoPhEDEx':
         # if it becomes empty
         try:
             inventory.delete(replica)
+            try:
+                siteObj = inventory.sites[replica.site]
+                dsetObj = replica.block.dataset
+                drepObj = siteObj.find_dataset_replica(dsetObj)
+            except:
+                pass
         except (KeyError, ObjectError):
-            LOG.debug('Replica not found.')
+            LOG.info('Replica not found.')
             pass
     
     # 7. Set growing flag for dataset replicas
@@ -883,6 +889,10 @@ for key, subs in done_subscriptions.iteritems():
 
         if all_file_ids != set(file_ids):
             # block replica is not complete
+
+            replica.file_ids = tuple(file_ids)
+            inventory.register_update(replica)
+
             continue
 
     completed_subscriptions[key] = [sub.id for sub in subs]

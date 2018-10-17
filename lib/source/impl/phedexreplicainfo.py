@@ -90,6 +90,30 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         
         block_entries = self._phedex.make_request('blockreplicas', options, timeout = 7200)
 
+        # Removing blocks that have only block_replicas with group None
+        to_remove = set()
+
+        for i,block_entry in enumerate(block_entries):
+            valid_group = False
+
+            # if "site" contains wildcard, we can have multiple replicas per block
+            for replica_entry in block_entry['replica']:
+                if '/ScoutingCaloMuon/Tier0_REPLAY_vocms0500-v34/RAW' in block_entry['name']:
+                    LOG.info(block_entry['name'])
+                if replica_entry['group'] != None:
+                    valid_group = True
+                    break
+                if replica_entry['subscribed'] == 'y':
+                    valid_group = True
+                    break                    
+
+            if not valid_group:
+                to_remove.add(i)
+
+        for i in sorted(to_remove, reverse=True):
+            LOG.info("Discarding %s from list of block replicas" % block_entries[i]['name'])
+            del block_entries[i]
+            
         parallelizer = Map()
         parallelizer.timeout = 7200
 
@@ -97,7 +121,6 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
         combine_file = parallelizer.get_starter(self._combine_file_info)
 
         for block_entry in block_entries:
-            # if "site" contains wildcard, we can have multiple replicas per block
             for replica_entry in block_entry['replica']:
                 if replica_entry['complete'] == 'n':
                     break
