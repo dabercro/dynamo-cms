@@ -98,8 +98,6 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
 
             # if "site" contains wildcard, we can have multiple replicas per block
             for replica_entry in block_entry['replica']:
-                if '/ScoutingCaloMuon/Tier0_REPLAY_vocms0500-v34/RAW' in block_entry['name']:
-                    LOG.info(block_entry['name'])
                 if replica_entry['group'] != None:
                     valid_group = True
                     break
