@@ -47,16 +47,23 @@ class PhEDExSiteInfoSource(SiteInfoSource):
 
         return Site(name, host = host, storage_type = storage_type)
 
-    def get_site_list(self): #override
+    def get_site_list(self, inventory): #override
         LOG.info('get_site_list  Fetching the list of nodes from PhEDEx')
 
         site_list = []
 
         for entry in self._phedex.make_request('nodes'):
-            if not self.check_allowed_site(entry['name']):
+            site_name = entry['name']
+            if not self.check_allowed_site(site_name):
                 continue
 
-            site_list.append(Site(entry['name'], host = entry['se'], storage_type = Site.storage_type_val(entry['kind'])))
+            siteObj_new = Site(site_name, host = entry['se'], storage_type = Site.storage_type_val(entry['kind']))
+            if site_name in inventory.sites:
+                siteObj_old = inventory.sites[site_name]
+                siteObj_new.backend = siteObj_old.backend
+                siteObj_new.x509proxy = siteObj_old.x509proxy
+
+            site_list.append(siteObj_new)
 
         return site_list
 
