@@ -392,7 +392,7 @@ if args.mode != 'NoPhEDEx':
                     site_pat = re.compile(fnmatch.translate(site_name))
     
                     if site_list is None:
-                        site_list = site_source.get_site_list()
+                        site_list = site_source.get_site_list(inventory)
     
                     for site in site_list:
                         if site_pat.match(site.name):
@@ -442,14 +442,14 @@ if args.mode != 'NoPhEDEx':
     dataset_tmps = parallelizer.execute(get_dataset, dataset_names, async = True)
     
     def create_file(file_tmp, block):
-        LOG.info('Creating new file %s', file_tmp.lfn)
+        LOG.debug('Creating new file %s', file_tmp.lfn)
         lfile = File(file_tmp.lfn, block)
         lfile.copy(file_tmp)
         block.add_file(lfile)
         inventory.register_update(lfile)
     
     def create_block(block_tmp, dataset):
-        LOG.info('Creating new block %s', block_tmp.full_name())
+        LOG.debug('Creating new block %s', block_tmp.full_name())
         block = Block(block_tmp.name, dataset)
         block.copy(block_tmp)
         dataset.blocks.add(block)
@@ -460,7 +460,7 @@ if args.mode != 'NoPhEDEx':
             create_file(file_tmp, block)
     
     def create_dataset(dataset_tmp):
-        LOG.info('Creating new dataset %s', dataset_tmp.name)
+        LOG.debug('Creating new dataset %s', dataset_tmp.name)
         dataset = Dataset(dataset_tmp.name)
         dataset.copy(dataset_tmp)
         inventory.datasets.add(dataset)
@@ -626,7 +626,19 @@ if args.mode != 'NoPhEDEx':
                 continue
     
             # valid datasets should exist in the repository now
-            dataset = inventory.datasets[dataset_name]
+            try:
+                dataset = inventory.datasets[dataset_name]
+            except KeyError:
+                dataset_tmp = get_dataset(dataset_name)
+                if not dataset_tmp == None:
+                    create_dataset(dataset_tmp)
+                    dataset = inventory.datasets[dataset_name]
+                else:
+                    dataset = None
+
+            if dataset is None:
+                continue
+
             dataset_replica = None
     
         # 4.4. Find the dataset replica
@@ -716,7 +728,7 @@ if args.mode != 'NoPhEDEx':
     for replica in deleted_replicas:
         replica_str = str(replica)
     
-        LOG.info('Deleting block_replica %s', replica_str)
+        LOG.debug('Deleting block_replica %s', replica_str)
     
         # 6.1. Pick up replicas of known groups only
     

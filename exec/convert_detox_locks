@@ -130,4 +130,10 @@ try:
 
 finally:
     if authorized:
-        registry.unlock_app('detox', config.applock_user)
+        while True:
+            user, service, lock_time, note, depth = registry.get_app_lock('detox')
+            if user == config.applock_user:
+                registry.unlock_app('detox', config.applock_user)
+            elif user is None:
+                break
+
