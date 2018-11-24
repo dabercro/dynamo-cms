@@ -12,7 +12,7 @@ LOG = logging.getLogger(__name__)
 
 class WebReplicaLock(object):
     """
-    Dataset lock read from www sources.
+    Dataset lock read from www or remote (Oracle) database sources.
     Sets one attr:
       locked_blocks:   {site: set([blocks]) or None if dataset-level}
     """
@@ -29,8 +29,9 @@ class WebReplicaLock(object):
             self.add_source(name, source_config, config.auth)
 
     def add_source(self, name, config, auth_config):
+        LOG.info(config)
         rest_config = Configuration()
-        rest_config.url_base = config.url
+        rest_config.url_base = config.get('url', None)
         rest_config.accept = config.get('data_type', 'application/json')
         if config.auth == 'noauth':
             rest_config.auth_handler = 'None'
@@ -43,7 +44,16 @@ class WebReplicaLock(object):
         site_pattern = config.get('sites', None)
         lock_url = config.get('lock_url', None)
 
-        self._sources[name] = (webservice.RESTService(rest_config), content_type, site_pattern, lock_url)
+        if rest_config.url_base is not None:
+            self._sources[name] = (webservice.RESTService(rest_config), content_type, site_pattern, lock_url)
+
+        if config.get('oracledb', None) is not None:
+            oracle_config = Configuration()
+            oracle_config.db = config.oracledb.db
+            oracle_config.pw = config.oracledb.password
+            oracle_config.host = config.oracledb.host
+            self._sources[name] = (webservice.OracleService(oracle_config), content_type, site_pattern, (config.oracledb.lockoflock,config.oracledb.locks))
+            
 
     def load(self, inventory):
         for dataset in inventory.datasets.itervalues():
@@ -99,7 +109,7 @@ class WebReplicaLock(object):
         all_locks = [] # [(item, site)]
 
         for source, content_type, site_pattern, lock_url in self._sources.itervalues():        
-            if lock_url is not None:
+            if lock_url is not None and isinstance(lock_url, basestring):
                 # check that the lock files themselves are not locked
                 while True:
                     # Hacky but this is temporary any way
@@ -117,27 +127,50 @@ class WebReplicaLock(object):
         
                     LOG.info('Lock files are being produced. Waiting 60 seconds.')
                     time.sleep(60)
+            elif not isinstance(lock_url, basestring):
+                # lock_url is a tuple of Oracle db queries (a,b): a - checking for lock of locks, b - locks themselves
+                # source is automatically an OracleService
+                try:
+                    locked = True
+                    while locked:
+                        locked = False
+                        locks = source.make_request(lock_url[0].replace('`','"'))
+                        for lock in locks:
+                            if lock == 1:
+                                locked = True
+                                break
+                        if not locked:
+                            break
 
+                        LOG.info('Locks are being produced. Waiting 60 seconds.')
+                        time.sleep(60)
+                except:
+                    pass
+                        
             if site_pattern is None:
                 site_re = None
             else:
                 site_re = re.compile(fnmatch.translate(site_pattern))
 
-            LOG.info('Retrieving lock information from %s', source.url_base)
+            LOG.info('Retrieving lock information from %s', source)
 
-            data = source.make_request()
+            try:
+                data = source.make_request()
+            except TypeError:
+                # OracleService expects a query text
+                data = source.make_request(lock_url[1].replace('`','"'))
 
             if content_type == WebReplicaLock.LIST_OF_DATASETS:
                 # simple list of datasets
                 for dataset_name in data:
                     if dataset_name is None:
-                        LOG.debug('Dataset name None found in %s', source.url_base)
+                        LOG.debug('Dataset name None found in %s', source)
                         continue
 
                     try:
                         dataset = inventory.datasets[dataset_name]
                     except KeyError:
-                        LOG.debug('Unknown dataset %s in %s', dataset_name, source.url_base)
+                        LOG.debug('Unknown dataset %s in %s', dataset_name, source)
                         continue
 
                     if site_re is not None:
