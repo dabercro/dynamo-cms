@@ -11,6 +11,7 @@
 <track_requests> = $(DYNAMO_BASE)/exec/track_requests
 {siteinfo} = $(DYNAMO_BASE)/exec/siteinfo
 <enter_stucktransfers> = $(DYNAMO_BASE)/exec/enter_stucktransfers
+{consistency} = /bin/dynamo-consistency
 
 [SEQUENCE delta_update]
 & <updater> --config /etc/dynamo/updater_config.json --mode ReplicaDelta
@@ -76,3 +77,15 @@ WAIT 120
 [SEQUENCE stuck_transfers]
 | <enter_stucktransfers> --config /etc/dynamo/stuck_transfers.json
 WAIT 43200
+
+[SEQUENCE consistency-t2-1]
+|[72] {consistency} --config /home/dynamo/consistency/consistency_config.json --site T2_ --info --cms --v1 --unmerged --cnf /etc/my.cnf.d/dynamo-dynamo.cnf
+WAIT 600
+
+[SEQUENCE consistency-t2-2]
+WAIT 600
+|[72] {consistency} --config /home/dynamo/consistency/consistency_config.json --site T2_ --info --cms --v1 --unmerged --cnf /etc/my.cnf.d/dynamo-dynamo.cnf
+
+[SEQUENCE consistency-t1-1]
+|[72] {consistency} --config /home/dynamo/consistency/consistency_config.json --site '(?<!_RAL)_Disk' --info --cms --v1 --unmerged --cnf /etc/my.cnf.d/dynamo-dynamo.cnf
+WAIT 20000
