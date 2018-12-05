@@ -12,6 +12,7 @@
 {siteinfo} = $(DYNAMO_BASE)/exec/siteinfo
 <enter_stucktransfers> = $(DYNAMO_BASE)/exec/enter_stucktransfers
 {consistency} = /bin/dynamo-consistency
+<consistency-inv> = /bin/consistency-invalidate
 
 [SEQUENCE delta_update]
 & <updater> --config /etc/dynamo/updater_config.json --mode ReplicaDelta
@@ -89,3 +90,7 @@ WAIT 600
 [SEQUENCE consistency-t1-1]
 |[72] {consistency} --config /home/dynamo/consistency/consistency_config.json --site '(?<!_RAL)_Disk' --info --cms --v1 --unmerged --cnf /etc/my.cnf.d/dynamo-dynamo.cnf
 WAIT 20000
+
+[SEQUENCE consistency-inv]
+| <consistency-inv> --config /home/dynamo/consistency/consistency_config.json
+WAIT 3600
