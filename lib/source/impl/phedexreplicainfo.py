@@ -219,7 +219,6 @@ class PhEDExReplicaInfoSource(ReplicaInfoSource):
                             replica.files = None
                         else:
                             # incomplete - since we cannot know what files are there, we'll just have to pretend there is none
-                            LOG.info("Pretending for %s" % str(replica))
                             replica.size = 0
                             replica.files = tuple()
 
